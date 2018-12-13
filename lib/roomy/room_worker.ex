@@ -66,6 +66,9 @@ defmodule Roomy.RoomWorker do
 
   # we remove a person from this room
   def handle_call({:rm_person, people}, _from, {room_name, people_in_room}) when is_list(people) do
+    people_in_room = people_in_room |> MapSet.difference(MapSet.new(people))
+    {:reply, :ok, {room_name, people_in_room}}
+  end
   def handle_call({:rm_person, person}, _from, {room_name, people_in_room}) do
     people_in_room = people_in_room |> MapSet.delete(person)
     {:reply, :ok, {room_name, people_in_room}}

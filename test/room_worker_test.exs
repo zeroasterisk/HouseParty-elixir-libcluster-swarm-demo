@@ -42,4 +42,14 @@ defmodule RoomyRoomWorkerTest do
     assert people == [:person_1]
     :ok = Roomy.RoomWorker.stop(pid_1, :normal)
   end
+  test "starts GenServer, add and remove list of people" do
+    {:ok, pid_1} = Roomy.RoomWorker.start_link(:test_room_1)
+    :ok = Roomy.RoomWorker.add_person(pid_1, [:person_1, :person_2])
+    {:ok, people} = Roomy.RoomWorker.who_is_in(pid_1)
+    assert people == [:person_1, :person_2]
+    :ok = Roomy.RoomWorker.rm_person(pid_1, [:person_1, :person_2])
+    {:ok, people} = Roomy.RoomWorker.who_is_in(pid_1)
+    assert people == []
+    :ok = Roomy.RoomWorker.stop(pid_1, :normal)
+  end
 end
