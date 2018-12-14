@@ -1,9 +1,9 @@
-defmodule Roomy.MixProject do
+defmodule HouseParty.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :roomy,
+      app: :house_party,
       version: "0.1.0",
       elixir: "~> 1.7",
       start_permanent: Mix.env() == :prod,
@@ -15,7 +15,7 @@ defmodule Roomy.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {Roomy.Application, []}
+      mod: {HouseParty.Application, []}
     ]
   end
 

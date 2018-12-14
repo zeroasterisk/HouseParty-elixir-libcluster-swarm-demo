@@ -1,4 +1,4 @@
-defmodule Roomy.RoomWorker do
+defmodule HouseParty.RoomWorker do
   use GenServer
   require Logger
   @moduledoc """

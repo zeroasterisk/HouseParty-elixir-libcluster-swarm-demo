@@ -1,6 +1,6 @@
-defmodule Roomy do
+defmodule HouseParty do
   @moduledoc """
-  Documentation for Roomy.
+  Documentation for HouseParty.
   """
   require Logger
 
@@ -9,10 +9,10 @@ defmodule Roomy do
 
   ## Examples
 
-      iex> Roomy.add_rooms()
+      iex> HouseParty.add_rooms()
       :ok
 
-      iex> Roomy.add_rooms([:kitchen, :living_room])
+      iex> HouseParty.add_rooms([:kitchen, :living_room])
       :ok
 
   """
@@ -23,8 +23,8 @@ defmodule Roomy do
     # NOTE process started with libswarm
     #      needed for the all_rooms in leave
     #      also for process distrobution in hostess
-    # Roomy.RoomWorker.start_link(room) |> add_rooms_finish()
-    room |> Swarm.register_name(Roomy.RoomWorker, :start_link, [room]) |> add_rooms_finish()
+    # HouseParty.RoomWorker.start_link(room) |> add_rooms_finish()
+    room |> Swarm.register_name(HouseParty.RoomWorker, :start_link, [room]) |> add_rooms_finish()
     add_rooms(rest)
   end
   def add_rooms(room) when is_bitstring(room) or is_atom(room), do: add_rooms([room])
@@ -44,15 +44,15 @@ defmodule Roomy do
 
   ## Examples
 
-      iex> Roomy.add_rooms([:kitchen, :living_room])
-      iex> Roomy.walk_into(:living_room, :james)
+      iex> HouseParty.add_rooms([:kitchen, :living_room])
+      iex> HouseParty.walk_into(:living_room, :james)
       :ok
 
   """
   def walk_into(room, person) do
     case leave(person) do
       :ok ->
-        case Roomy.RoomWorker.add_person(room, person) do
+        case HouseParty.RoomWorker.add_person(room, person) do
           :ok -> :ok
           :error -> {:error, "Unable to enter room #{room}"}
         end
@@ -67,39 +67,39 @@ defmodule Roomy do
 
   ## Examples
 
-      iex> Roomy.add_rooms([:kitchen, :living_room])
-      iex> Roomy.walk_into(:living_room, :james)
-      iex> Roomy.leave(:james)
+      iex> HouseParty.add_rooms([:kitchen, :living_room])
+      iex> HouseParty.walk_into(:living_room, :james)
+      iex> HouseParty.leave(:james)
       :ok
 
   """
   def leave(person) do
-    get_all_rooms() |> Roomy.RoomWorker.rm_person(person)
+    get_all_rooms() |> HouseParty.RoomWorker.rm_person(person)
   end
 
   @doc """
   Get a list of all of the rooms
 
-  We first get a list of all `Swarm.members(Roomy)` as [pid, ...]
+  We first get a list of all `Swarm.members(HouseParty)` as [pid, ...]
 
   Next get a list of all `Swarm.registered` processes as [name: pid, ...]
 
-  Then we return only the Swarm.registered process names which are part of the Roomy group.
+  Then we return only the Swarm.registered process names which are part of the HouseParty group.
   (we may use Swarm to start other types of processes as well)
 
   ## Examples
 
       iex> Swarm.registered() |> Enum.map(fn({_name, pid}) -> GenServer.stop(pid) end)
-      iex> Roomy.add_rooms([:kitchen, :living_room])
-      iex> Roomy.add_rooms([:hallway, :den])
-      iex> Roomy.get_all_rooms()
+      iex> HouseParty.add_rooms([:kitchen, :living_room])
+      iex> HouseParty.add_rooms([:hallway, :den])
+      iex> HouseParty.get_all_rooms()
       [:den, :hallway, :living_room, :kitchen]
 
   """
   def get_all_rooms() do
-    roomy_pids = Swarm.members(__MODULE__)
+    house_party_pids = Swarm.members(__MODULE__)
     all_processes = Swarm.registered()
-                    |> Enum.filter(fn({_name, pid}) -> Enum.member?(roomy_pids, pid) end)
+                    |> Enum.filter(fn({_name, pid}) -> Enum.member?(house_party_pids, pid) end)
                     |> Enum.map(fn({name, _pid}) -> name end)
   end
 
@@ -108,16 +108,16 @@ defmodule Roomy do
 
   ## Examples
 
-      iex> Roomy.add_rooms([:kitchen, :living_room])
-      iex> Roomy.walk_into(:kitchen, :alan)
-      iex> Roomy.walk_into(:living_room, :james)
-      iex> Roomy.dump([:living_room])
+      iex> HouseParty.add_rooms([:kitchen, :living_room])
+      iex> HouseParty.walk_into(:kitchen, :alan)
+      iex> HouseParty.walk_into(:living_room, :james)
+      iex> HouseParty.dump([:living_room])
       %{living_room: [:james]}
 
   """
   def dump([], acc), do: acc
   def dump([room | rest], acc) do
-    people = case Roomy.RoomWorker.who_is_in(room) do
+    people = case HouseParty.RoomWorker.who_is_in(room) do
       {:ok, people} -> people
       {:error, reason} -> "ERROR: Unable to list room #{room}: #{reason}"
       :error -> "ERROR: Unable to enter room #{room} (unknown reason)"
@@ -130,23 +130,23 @@ defmodule Roomy do
   @doc """
   Dump information about all of the rooms
 
-  When you use `Roomy.dump()` with no args, we list all people in all rooms.
+  When you use `HouseParty.dump()` with no args, we list all people in all rooms.
 
   We could list all rooms and dump each...
   but we can also use `Swarm.multi_call` to get all processes dumps in parallel and aggregage them
 
   ## Examples
 
-      iex> Roomy.add_rooms([:kitchen, :living_room])
-      iex> Roomy.walk_into(:kitchen, :alan)
-      iex> Roomy.walk_into(:living_room, :james)
-      iex> Roomy.dump()
+      iex> HouseParty.add_rooms([:kitchen, :living_room])
+      iex> HouseParty.walk_into(:kitchen, :alan)
+      iex> HouseParty.walk_into(:living_room, :james)
+      iex> HouseParty.dump()
       %{kitchen: [:alan], living_room: [:james]}
 
-      iex> Roomy.add_rooms([:kitchen, :living_room])
-      iex> Roomy.walk_into(:kitchen, :alan)
-      iex> Roomy.walk_into(:living_room, :james)
-      iex> Swarm.multi_call(Roomy, {:dump}) |> Enum.sort_by(fn({:ok, {room_name, _}}) -> room_name end)
+      iex> HouseParty.add_rooms([:kitchen, :living_room])
+      iex> HouseParty.walk_into(:kitchen, :alan)
+      iex> HouseParty.walk_into(:living_room, :james)
+      iex> Swarm.multi_call(HouseParty, {:dump}) |> Enum.sort_by(fn({:ok, {room_name, _}}) -> room_name end)
       [
         ok: {:kitchen, MapSet.new([:alan])},
         ok: {:living_room, MapSet.new([:james])},

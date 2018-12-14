@@ -1,4 +1,4 @@
-# Roomy
+# HouseParty
 
 A simple example of OTP process state, and
 [kubernetes](https://kubernetes.io)
@@ -13,30 +13,30 @@ OTP FTW!
 
 In this case, we will use *Swarm* to start processes which will manage rooms, one worker process for each room.
 
-### The basic Roomy API
+### The basic HouseParty API
 
 
 ```elixir
-iex> Roomy.add_room(:den)
+iex> HouseParty.add_room(:den)
 :ok
-iex> Roomy.add_room(:living_room)
+iex> HouseParty.add_room(:living_room)
 :ok
-iex> Roomy.get_all_rooms()
+iex> HouseParty.get_all_rooms()
 [:den, :living_room]
 ```
 
 And we can have people *walk into* rooms.
 
 ```elixir
-iex> Roomy.add_rooms([:kitchen, :living_room])
+iex> HouseParty.add_rooms([:kitchen, :living_room])
 :ok
-iex> Roomy.walk_into(:kitchen, :alan)
+iex> HouseParty.walk_into(:kitchen, :alan)
 :ok
-iex> Roomy.walk_into(:living_room, :james)
+iex> HouseParty.walk_into(:living_room, :james)
 :ok
-iex> Roomy.who_is_in(:living_room)
+iex> HouseParty.who_is_in(:living_room)
 [:james]
-iex> Roomy.dump()
+iex> HouseParty.dump()
 %{kitchen: [:alan], living_room: [:james]}
 ```
 
@@ -47,13 +47,13 @@ A bit more about how people fit into rooms:
 * Trying to keep this simple, we do not have restrictions about which rooms can connect to other rooms, but we could...
 
 ```elixir
-iex> Roomy.add_rooms([:kitchen, :living_room, :bedroom_king])
+iex> HouseParty.add_rooms([:kitchen, :living_room, :bedroom_king])
 :ok
-iex> Roomy.walk_into(:living_room, [:alan, :james, :lucy])
+iex> HouseParty.walk_into(:living_room, [:alan, :james, :lucy])
 :ok
-iex> Roomy.walk_into(:bedroom_king, [:james, :lucy, :jess])
+iex> HouseParty.walk_into(:bedroom_king, [:james, :lucy, :jess])
 :ok
-iex> Roomy.dump([:living_room, :bedroom_king])
+iex> HouseParty.dump([:living_room, :bedroom_king])
 %{
   bedroom_king: [:james, :jess, :lucy],
   living_room: [:alan],
@@ -71,15 +71,15 @@ TODO add more information about groups of pids
 
 ### Swarm.multi_call is a great convenience
 
-In `Roomy.dump()` we use use `Swarm.multi_call()` to send a message to all of our nodes/processes in parallel and aggregate their results.
+In `HouseParty.dump()` we use use `Swarm.multi_call()` to send a message to all of our nodes/processes in parallel and aggregate their results.
 
 This is easier and more efficient than selecting all of their names/pids and sending each a message and aggregating in my code.
 
 ```
-Swarm.multi_call(Roomy, {:who_is_in})
+Swarm.multi_call(HouseParty, {:who_is_in})
 [ok: [:alan], ok: [:james], ok: []]
 
-Swarm.multi_call(Roomy, {:dump})
+Swarm.multi_call(HouseParty, {:dump})
 [
   ok: {:kitchen, MapSet.new([:alan])},
   ok: {:living_room, MapSet.new([:james])},

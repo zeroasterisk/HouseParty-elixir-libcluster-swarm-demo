@@ -10,11 +10,11 @@ use Mix.Config
 
 # You can configure your application as:
 #
-#     config :roomy, key: :value
+#     config :house_party, key: :value
 #
 # and access this configuration in your application as:
 #
-#     Application.get_env(:roomy, :key)
+#     Application.get_env(:house_party, :key)
 #
 # You can also configure a 3rd-party app:
 #
