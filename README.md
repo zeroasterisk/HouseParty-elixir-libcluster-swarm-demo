@@ -52,3 +52,15 @@ But state must migrate when nodes add/exit the cluster.  That's the responsibili
 
 TODO build k8 cluster
 TODO libcluster config
+
+## Alternatives
+
+We can use `Swarm.multi_call` to sent a message to all of our nodes/processes and aggregate their results
+
+```
+Swarm.multi_call(Roomy, {:who_is_in})
+[ok: [], ok: [:alan, :james, :lucy], ok: []]
+
+Swarm.multi_call(Roomy, {:who_is_in})
+[ok: [], ok: [:alan, :james, :lucy], ok: []]
+```

@@ -59,9 +59,11 @@ defmodule Roomy.RoomWorker do
   def init([room_name, people_in_room]) when is_list(people_in_room) do
     {:ok, {room_name, MapSet.new(people_in_room)}}
   end
-  # def init([room_name]) do
-  #   {:ok, {room_name, []}}
-  # end
+
+  # dump the current state of this room: {room_name, people_in_room}
+  def handle_call({:dump}, _from, state) do
+    {:reply, {:ok, state}, state}
+  end
 
   # who is in this room right now? return a simple list of people
   def handle_call({:who_is_in}, _from, {_room_name, people_in_room} = state) do

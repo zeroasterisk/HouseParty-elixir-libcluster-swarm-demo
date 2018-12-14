@@ -2,6 +2,7 @@ defmodule Roomy do
   @moduledoc """
   Documentation for Roomy.
   """
+  require Logger
 
   @doc """
   Add rooms
@@ -19,16 +20,24 @@ defmodule Roomy do
   def add_rooms([]), do: :ok
   def add_rooms([room | rest]) when is_bitstring(room), do: add_rooms([String.to_atom(room) | rest])
   def add_rooms([room | rest]) when is_atom(room) do
-    # TODO switch to libswarm start/registry
-    #      needed for the all_rooms in rm_person
-    case Roomy.RoomWorker.start_link(room) do
-      {:ok, _pid} -> add_rooms(rest)
-      {:error, reason} -> {:error, reason}
-      :error -> {:error, "Unable to add room #{room}"}
-    end
+    # NOTE process started with libswarm
+    #      needed for the all_rooms in leave
+    #      also for process distrobution in hostess
+    # Roomy.RoomWorker.start_link(room) |> add_rooms_finish()
+    room |> Swarm.register_name(Roomy.RoomWorker, :start_link, [room]) |> add_rooms_finish()
+    add_rooms(rest)
   end
   def add_rooms(room) when is_bitstring(room) or is_atom(room), do: add_rooms([room])
   def add_rooms(_), do: {:error, "Invalid room argument"}
+
+  # handle the output from Swarm.register_name ane auto-join the group if possible
+  defp add_rooms_finish({:ok, pid}), do: Swarm.join(__MODULE__, pid)
+  defp add_rooms_finish({:error, {:already_registered, _pid}}), do: :ok
+  defp add_rooms_finish(:error), do: add_rooms_finish({:error, "unknown reason"})
+  defp add_rooms_finish({:error, reason}) do
+    Logger.error("add_rooms() failure for #{reason}")
+    {:error, reason}
+  end
 
   @doc """
   Walk into a room, add a person to a room
@@ -65,17 +74,42 @@ defmodule Roomy do
 
   """
   def leave(person) do
-    # TODO know all rooms to walk out, and walk out of them
-    all_rooms = [:kitchen, :living_room]
-    Roomy.RoomWorker.rm_person(all_rooms, person)
+    get_all_rooms() |> Roomy.RoomWorker.rm_person(person)
   end
 
   @doc """
-  Walk into a room, add a person to a room
+  Get a list of all of the rooms
+
+  We first get a list of all `Swarm.members(Roomy)` as [pid, ...]
+
+  Next get a list of all `Swarm.registered` processes as [name: pid, ...]
+
+  Then we return only the Swarm.registered process names which are part of the Roomy group.
+  (we may use Swarm to start other types of processes as well)
+
+  ## Examples
+
+      iex> Swarm.registered() |> Enum.map(fn({_name, pid}) -> GenServer.stop(pid) end)
+      iex> Roomy.add_rooms([:kitchen, :living_room])
+      iex> Roomy.add_rooms([:hallway, :den])
+      iex> Roomy.get_all_rooms()
+      [:den, :hallway, :living_room, :kitchen]
+
+  """
+  def get_all_rooms() do
+    roomy_pids = Swarm.members(__MODULE__)
+    all_processes = Swarm.registered()
+                    |> Enum.filter(fn({_name, pid}) -> Enum.member?(roomy_pids, pid) end)
+                    |> Enum.map(fn({name, _pid}) -> name end)
+  end
+
+  @doc """
+  Dump information about some of the rooms
 
   ## Examples
 
       iex> Roomy.add_rooms([:kitchen, :living_room])
+      iex> Roomy.walk_into(:kitchen, :alan)
       iex> Roomy.walk_into(:living_room, :james)
       iex> Roomy.dump([:living_room])
       %{living_room: [:james]}
@@ -92,4 +126,39 @@ defmodule Roomy do
   end
   def dump(room, acc) when is_bitstring(room) or is_atom(room), do: dump([room], acc)
   def dump(room), do: dump(room, %{})
+
+  @doc """
+  Dump information about all of the rooms
+
+  When you use `Roomy.dump()` with no args, we list all people in all rooms.
+
+  We could list all rooms and dump each...
+  but we can also use `Swarm.multi_call` to get all processes dumps in parallel and aggregage them
+
+  ## Examples
+
+      iex> Roomy.add_rooms([:kitchen, :living_room])
+      iex> Roomy.walk_into(:kitchen, :alan)
+      iex> Roomy.walk_into(:living_room, :james)
+      iex> Roomy.dump()
+      %{kitchen: [:alan], living_room: [:james]}
+
+      iex> Roomy.add_rooms([:kitchen, :living_room])
+      iex> Roomy.walk_into(:kitchen, :alan)
+      iex> Roomy.walk_into(:living_room, :james)
+      iex> Swarm.multi_call(Roomy, {:dump}) |> Enum.sort_by(fn({:ok, {room_name, _}}) -> room_name end)
+      [
+        ok: {:kitchen, MapSet.new([:alan])},
+        ok: {:living_room, MapSet.new([:james])},
+      ]
+
+  """
+  def dump() do
+    __MODULE__
+    |> Swarm.multi_call({:dump})
+    |> Enum.sort_by(fn({:ok, {room_name, _}}) -> room_name end)
+    |> Enum.reduce(%{}, fn({:ok, {room_name, people_in_room}}, acc) ->
+      acc |> Map.put(room_name, MapSet.to_list(people_in_room))
+    end)
+  end
 end
