@@ -31,11 +31,25 @@ defmodule Roomy.RoomWorker do
   @doc """
   Add a person to this room
   """
+  def add_person([], person), do: :ok
+  def add_person([pid | rest], person) do
+    case add_person(pid, person) do
+      :ok -> add_person(rest, person)
+      :error -> :error
+    end
+  end
   def add_person(pid, person), do: GenServer.call(pid, {:add_person, person})
 
   @doc """
   Remove a person from this room
   """
+  def rm_person([], person), do: :ok
+  def rm_person([pid | rest], person) do
+    case rm_person(pid, person) do
+      :ok -> rm_person(rest, person)
+      :error -> :error
+    end
+  end
   def rm_person(pid, person), do: GenServer.call(pid, {:rm_person, person})
 
 
