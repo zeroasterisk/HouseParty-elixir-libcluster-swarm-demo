@@ -49,21 +49,80 @@ defmodule HouseParty do
       :ok
 
   """
-  def walk_into(room, person) do
-    case leave(person) do
-      :ok ->
-        case HouseParty.RoomWorker.add_person(room, person) do
-          :ok -> :ok
-          :error -> {:error, "Unable to enter room #{room}"}
-        end
-      :error -> {:error, "Unable to enter room #{room}, could not leave first"}
+  # loop through people when people are a list
+  def walk_into(:ok, _room, []), do: :ok
+  def walk_into({:error, reason}, _room, _people), do: {:error, reason}
+  def walk_into(:ok, room, [person | rest]), do: room |> walk_into(person) |> walk_into(room, rest)
+  def walk_into(room, people) when is_list(people), do: :ok |> walk_into(room, people)
+  # handle a single person
+  def walk_into(%{room: room, current_room: current_room}) when current_room == room, do: :ok
+  def walk_into(%{
+    current_room: nil,
+    current_room_pid: nil,
+    person: person,
+    room: room,
+    room_pid: room_pid,
+  }) do
+    # enter the new room
+    case HouseParty.RoomWorker.add_person(room_pid, person) do
+      :ok -> :ok
+      :full ->
+        # can not enter - the new room was full
+        {:error, :destination_full}
     end
+  end
+  def walk_into(%{
+    current_room: current_room,
+    current_room_pid: current_room_pid,
+    person: person,
+    room: room,
+    room_pid: room_pid,
+  }) do
+    # enter the new room
+    case HouseParty.RoomWorker.add_person(room_pid, person) do
+      :ok ->
+        # leave the old room
+        HouseParty.RoomWorker.rm_person(current_room_pid, person)
+      :full ->
+        # can not leave/enter - the new room was full
+        {:error, :destination_full}
+    end
+  end
+  def walk_into(room, person) when is_bitstring(room), do: walk_into(String.to_atom(room), person)
+  def walk_into(room, person) when is_bitstring(person), do: walk_into(room, String.to_atom(person))
+  def walk_into(room, person) when is_atom(room) and is_atom(person) do
+    current_room = get_current_room(person)
+    %{
+      current_room: current_room,
+      current_room_pid: get_room_pid(current_room),
+      person: person,
+      room: room,
+      room_pid: get_room_pid(room),
+    } |> walk_into()
   end
 
   @doc """
-  Remove a person from all rooms
+  Get the current room for any person
 
-  Drop the mix, I'm out!
+  ## Examples
+
+      iex> HouseParty.add_rooms([:kitchen, :living_room])
+      iex> HouseParty.walk_into(:living_room, :james)
+      iex> HouseParty.get_current_room(:james)
+      :living_room
+
+  """
+  def get_current_room(person) when is_atom(person) do
+    HouseParty.dump()
+    |> Enum.filter(fn({_room_name, people_in_room}) -> Enum.member?(people_in_room, person) end)
+    |> Enum.map(fn({room_name, _people_in_room}) -> room_name end)
+    |> List.first()
+  end
+
+  @doc """
+  Remove a person from current_room
+
+  Drop the mic, I'm out!
 
   ## Examples
 
@@ -73,8 +132,11 @@ defmodule HouseParty do
       :ok
 
   """
-  def leave(person) do
-    get_all_rooms() |> HouseParty.RoomWorker.rm_person(person)
+  def leave(person) when is_atom(person) do
+    person
+    |> get_current_room()
+    |> get_room_pid()
+    |> HouseParty.RoomWorker.rm_person(person)
   end
 
   @doc """
@@ -92,48 +154,47 @@ defmodule HouseParty do
       iex> Swarm.registered() |> Enum.map(fn({_name, pid}) -> GenServer.stop(pid) end)
       iex> HouseParty.add_rooms([:kitchen, :living_room])
       iex> HouseParty.add_rooms([:hallway, :den])
-      iex> HouseParty.get_all_rooms()
+      iex> HouseParty.get_all_rooms() |> HousePartyTest.end_tests()
       [:den, :hallway, :living_room, :kitchen]
 
   """
   def get_all_rooms() do
     house_party_pids = Swarm.members(__MODULE__)
-    all_processes = Swarm.registered()
-                    |> Enum.filter(fn({_name, pid}) -> Enum.member?(house_party_pids, pid) end)
-                    |> Enum.map(fn({name, _pid}) -> name end)
+    Swarm.registered()
+    |> Enum.filter(fn({_name, pid}) -> Enum.member?(house_party_pids, pid) end)
+    |> Enum.map(fn({name, _pid}) -> name end)
   end
 
   @doc """
-  Dump information about some of the rooms
+  Get a single room's pid
 
   ## Examples
 
-      iex> HouseParty.add_rooms([:kitchen, :living_room])
-      iex> HouseParty.walk_into(:kitchen, :alan)
-      iex> HouseParty.walk_into(:living_room, :james)
-      iex> HouseParty.dump([:living_room])
-      %{living_room: [:james]}
+      iex> Swarm.registered() |> Enum.map(fn({_name, pid}) -> GenServer.stop(pid) end)
+      iex> HouseParty.add_rooms([:kitchen])
+      iex> HouseParty.get_room_pid(:kitchen) |> HousePartyTest.end_tests() |> is_pid()
+      true
+
+      iex> HouseParty.get_room_pid(nil)
+      nil
 
   """
-  def dump([], acc), do: acc
-  def dump([room | rest], acc) do
-    people = case HouseParty.RoomWorker.who_is_in(room) do
-      {:ok, people} -> people
-      {:error, reason} -> "ERROR: Unable to list room #{room}: #{reason}"
-      :error -> "ERROR: Unable to enter room #{room} (unknown reason)"
-    end
-    dump(rest, Map.put(acc, room, people))
+  def get_room_pid(nil), do: nil
+  def get_room_pid(room_name) when is_atom(room_name) do
+    house_party_pids = Swarm.members(__MODULE__)
+    Swarm.registered()
+    |> Enum.filter(fn({_name, pid}) -> Enum.member?(house_party_pids, pid) end)
+    |> Enum.filter(fn({name, _pid}) -> name == room_name end)
+    |> Enum.map(fn({_name, pid}) -> pid end)
+    |> List.first()
   end
-  def dump(room, acc) when is_bitstring(room) or is_atom(room), do: dump([room], acc)
-  def dump(room), do: dump(room, %{})
 
   @doc """
-  Dump information about all of the rooms
-
-  When you use `HouseParty.dump()` with no args, we list all people in all rooms.
+  Dump people in all of the rooms
 
   We could list all rooms and dump each...
-  but we can also use `Swarm.multi_call` to get all processes dumps in parallel and aggregage them
+  but instead we are using `Swarm.multi_call`
+  to get all processes dumps in parallel and aggregage them.
 
   ## Examples
 
@@ -142,23 +203,13 @@ defmodule HouseParty do
       iex> HouseParty.walk_into(:living_room, :james)
       iex> HouseParty.dump()
       %{kitchen: [:alan], living_room: [:james]}
-
-      iex> HouseParty.add_rooms([:kitchen, :living_room])
-      iex> HouseParty.walk_into(:kitchen, :alan)
-      iex> HouseParty.walk_into(:living_room, :james)
-      iex> Swarm.multi_call(HouseParty, {:dump}) |> Enum.sort_by(fn({:ok, {room_name, _}}) -> room_name end)
-      [
-        ok: {:kitchen, MapSet.new([:alan])},
-        ok: {:living_room, MapSet.new([:james])},
-      ]
-
   """
   def dump() do
     __MODULE__
     |> Swarm.multi_call({:dump})
     |> Enum.sort_by(fn({:ok, {room_name, _}}) -> room_name end)
     |> Enum.reduce(%{}, fn({:ok, {room_name, people_in_room}}, acc) ->
-      acc |> Map.put(room_name, MapSet.to_list(people_in_room))
+      acc |> Map.put(room_name, people_in_room)
     end)
   end
 end
