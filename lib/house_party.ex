@@ -1,8 +1,28 @@
+
+defmodule HouseParty.WalkIntoProc do
+  @moduledoc """
+  Process struct for HouseParty.walk_into, ensures a simple chain of actions in the process
+  """
+  defstruct [
+    status_add: nil,
+    status_rm: nil,
+    status_log: nil,
+    current_room: nil,
+    current_room_pid: nil,
+    person: nil,
+    person_pid: nil,
+    room: nil,
+    room_pid: nil,
+  ]
+end
+
+
 defmodule HouseParty do
   @moduledoc """
   Documentation for HouseParty.
   """
   require Logger
+  alias HouseParty.WalkIntoProc
 
   @doc """
   Add rooms
@@ -24,26 +44,51 @@ defmodule HouseParty do
   """
   def add_rooms(), do: :ok
   def add_rooms([]), do: :ok
-  def add_rooms([room | rest]) when is_bitstring(room), do: add_rooms([String.to_atom(room) | rest])
-  def add_rooms([room | rest]) when is_atom(room) do
-    # NOTE process started with libswarm
-    #      needed for the all_rooms in leave
-    #      also for process distrobution in hostess
-    # HouseParty.RoomWorker.start_link(room) |> add_rooms_finish()
-    room |> Swarm.register_name(HouseParty.RoomWorker, :start_link, [room]) |> add_rooms_finish()
-    add_rooms(rest)
+  def add_rooms(:ok, []), do: :ok
+  def add_rooms(:ok, [room | rest]) when is_atom(room) do
+    {status, _} = room |> add_room()
+    status |> add_rooms(rest)
   end
-  def add_rooms(room) when is_bitstring(room) or is_atom(room), do: add_rooms([room])
+  def add_rooms(:error, _list), do: :error
+  def add_rooms(rooms) when is_list(rooms), do: add_rooms(:ok, rooms)
+  def add_rooms(room) when is_bitstring(room) or is_atom(room), do: add_rooms(:ok, [room])
   def add_rooms(_), do: {:error, "Invalid room argument"}
 
-  # handle the output from Swarm.register_name ane auto-join the group if possible
-  defp add_rooms_finish({:ok, pid}), do: Swarm.join(__MODULE__, pid)
-  defp add_rooms_finish({:error, {:already_registered, _pid}}), do: :ok
-  defp add_rooms_finish(:error), do: add_rooms_finish({:error, "unknown reason"})
-  defp add_rooms_finish({:error, reason}) do
+
+  # Add a room (not used externally)
+  defp add_room(room) when is_bitstring(room), do: room |> String.to_atom() |> add_room()
+  defp add_room(room) when is_atom(room) do
+    name = build_process_name(:room, room)
+    name |> Swarm.register_name(HouseParty.RoomWorker, :start_link, [room]) |> add_room_finish()
+  end
+  # handle the output from Swarm.register_name and auto-join the group if possible
+  defp add_room_finish({:ok, pid}) do
+    {Swarm.join(:house_party_rooms, pid), pid}
+  end
+  defp add_room_finish({:error, {:already_registered, pid}}), do: {:ok, pid}
+  defp add_room_finish(:error), do: add_room_finish({:error, "unknown reason"})
+  defp add_room_finish({:error, reason}) do
     Logger.error("add_rooms() failure for #{reason}")
     {:error, reason}
   end
+
+
+  # Add a person (not used externally)
+  defp add_person(person) when is_atom(person) do
+    name = build_process_name(:person, person)
+    name |> Swarm.register_name(HouseParty.PersonWorker, :start_link, [person]) |> add_person_finish()
+  end
+  # handle the output from Swarm.register_name and auto-join the group if possible
+  defp add_person_finish({:ok, pid}) do
+    {Swarm.join(:house_party_people, pid), pid}
+  end
+  defp add_person_finish({:error, {:already_registered, pid}}), do: {:ok, pid}
+  defp add_person_finish(:error), do: add_person_finish({:error, "unknown reason"})
+  defp add_person_finish({:error, reason}) do
+    Logger.error("add_person() failure for #{reason}")
+    {:error, reason}
+  end
+
 
   @doc """
   Walk into a room, add a person to a room
@@ -62,51 +107,103 @@ defmodule HouseParty do
   def walk_into(:ok, room, [person | rest]), do: room |> walk_into(person) |> walk_into(room, rest)
   def walk_into(room, people) when is_list(people), do: :ok |> walk_into(room, people)
   # handle a single person
-  def walk_into(%{room: room, current_room: current_room}) when current_room == room, do: :ok
-  def walk_into(%{
-    current_room: nil,
-    current_room_pid: nil,
-    person: person,
-    room: room,
-    room_pid: room_pid,
-  }) do
-    # enter the new room
-    case HouseParty.RoomWorker.add_person(room_pid, person) do
-      :ok -> :ok
-      :full ->
-        # can not enter - the new room was full
-        {:error, :destination_full}
-    end
-  end
-  def walk_into(%{
-    current_room: current_room,
-    current_room_pid: current_room_pid,
-    person: person,
-    room: room,
-    room_pid: room_pid,
-  }) do
-    # enter the new room
-    case HouseParty.RoomWorker.add_person(room_pid, person) do
-      :ok ->
-        # leave the old room
-        HouseParty.RoomWorker.rm_person(current_room_pid, person)
-      :full ->
-        # can not leave/enter - the new room was full
-        {:error, :destination_full}
-    end
-  end
   def walk_into(room, person) when is_bitstring(room), do: walk_into(String.to_atom(room), person)
   def walk_into(room, person) when is_bitstring(person), do: walk_into(room, String.to_atom(person))
   def walk_into(room, person) when is_atom(room) and is_atom(person) do
+    %WalkIntoProc{
+      person: person,
+      room: room,
+    } |> walk_into()
+  end
+  # no status?  run the walk_into process
+  def walk_into(%WalkIntoProc{status_add: nil, status_rm: nil, status_log: nil} = acc) do
+    acc
+    |> walk_into_lookup()
+    |> walk_into_start_room_process()
+    |> walk_into_start_person_process()
+    |> walk_into_add_person()
+    |> walk_into_rm_person()
+    |> walk_into_log()
+    # |> IO.inspect()
+    |> walk_into_summarize()
+  end
+
+  # lookup current_room & existing PIDs if possible
+  defp walk_into_lookup(%WalkIntoProc{person: person, room: room} = acc) when is_atom(room) and is_atom(person) do
     current_room = get_current_room(person)
-    %{
+    acc |> Map.merge(%{
       current_room: current_room,
       current_room_pid: get_room_pid(current_room),
       person: person,
+      person_pid: get_person_pid(person),
       room: room,
       room_pid: get_room_pid(room),
-    } |> walk_into()
+    })
   end
+
+  # start a person process
+  defp walk_into_start_person_process(%WalkIntoProc{person_pid: person_pid} = acc) when is_pid(person_pid) do
+    # person already started, no-op
+    acc
+  end
+  defp walk_into_start_person_process(%WalkIntoProc{person: person} = acc) when is_atom(person) do
+    case add_person(person) do
+      {:ok, person_pid} -> acc |> Map.put(:person_pid, person_pid)
+      {:error, {:already_registered, person_pid}} -> acc |> Map.put(:person_pid, person_pid)
+      {:error, _reason} -> acc |> Map.put(:status_add, {:error, :unable_to_setup_person})
+    end
+  end
+
+  # start a room process
+  defp walk_into_start_room_process(%WalkIntoProc{room_pid: room_pid} = acc) when is_pid(room_pid) do
+    # room already started, no-op
+    acc
+  end
+  defp walk_into_start_room_process(%WalkIntoProc{room: room} = acc) when is_atom(room) do
+    case add_room(room) do
+      {:ok, room_pid} -> acc |> Map.put(:room_pid, room_pid)
+      {:error, {:already_registered, room_pid}} -> acc |> Map.put(:room_pid, room_pid)
+      {:error, _reason} -> acc |> Map.put(:status_add, {:error, :unable_to_setup_room})
+    end
+  end
+
+  # add a person to room
+  defp walk_into_add_person(%WalkIntoProc{room: room, current_room: current_room} = acc) when current_room == room do
+    # same room?  no-op
+    acc |> Map.put(:status_add, :skip)
+  end
+  defp walk_into_add_person(%WalkIntoProc{person: person, room_pid: room_pid} = acc) when is_atom(person) and is_pid(room_pid) do
+    acc |> Map.put(:status_add, HouseParty.RoomWorker.add_person(room_pid, person))
+  end
+
+  # remove from old room
+  defp walk_into_rm_person(%WalkIntoProc{status_add: :skip} = acc) do
+    acc |> Map.put(:status_rm, :skip)
+  end
+  defp walk_into_rm_person(%WalkIntoProc{status_add: :full} = acc) do
+    acc |> Map.put(:status_rm, :skip)
+  end
+  defp walk_into_rm_person(%WalkIntoProc{status_add: :ok, current_room: nil, current_room_pid: nil} = acc) do
+    acc |> Map.put(:status_rm, :ok) # no need to rm, but do need to log
+  end
+  defp walk_into_rm_person(%WalkIntoProc{status_add: :ok, person: person, current_room_pid: current_room_pid} = acc) do
+    acc |> Map.put(:status_rm, HouseParty.RoomWorker.rm_person(current_room_pid, person))
+  end
+
+  # log the entry into the Person's process
+  defp walk_into_log(%WalkIntoProc{status_add: :ok, person_pid: person_pid, room: room} = acc) do
+    acc |> Map.put(:status_log, HouseParty.PersonWorker.enter(person_pid, room))
+  end
+  defp walk_into_log(%WalkIntoProc{} = acc) do
+    acc |> Map.put(:status_log, :skip)
+  end
+
+  # summarize the walk_into statuses and out a single status --> :ok
+  defp walk_into_summarize(%WalkIntoProc{status_add: :ok, status_rm: :ok, status_log: :ok}), do: :ok
+  defp walk_into_summarize(%WalkIntoProc{status_add: :skip}), do: :ok # skip means same room, it's ok
+  defp walk_into_summarize(%WalkIntoProc{status_add: :full}), do: {:error, :destination_full}
+  defp walk_into_summarize(%WalkIntoProc{status_add: status}), do: {:error, "Unable to walk into room #{status}"}
+
 
   @doc """
   Get the current room for any person
@@ -149,29 +246,30 @@ defmodule HouseParty do
   end
 
   @doc """
-  Get a list of all of the rooms
-
-  We first get a list of all `Swarm.members(HouseParty)` as [pid, ...]
-
-  Next get a list of all `Swarm.registered` processes as [name: pid, ...]
-
-  Then we return only the Swarm.registered process names which are part of the HouseParty group.
-  (we may use Swarm to start other types of processes as well)
+  Get a single person's pid
 
   ## Examples
 
       iex> HouseParty.reset()
-      iex> HouseParty.add_rooms([:kitchen, :living_room])
-      iex> HouseParty.add_rooms([:hallway, :den])
-      iex> HouseParty.get_all_rooms() |> HousePartyTest.end_tests()
-      [:den, :hallway, :living_room, :kitchen]
+      iex> HouseParty.add_rooms([:kitchen])
+      iex> HouseParty.walk_into(:kitchen, :play)
+      iex> HouseParty.get_person_pid(:play) |> HousePartyTest.end_tests() |> is_pid()
+      true
+
+      iex> HouseParty.reset()
+      iex> HouseParty.get_person_pid(nil)
+      nil
 
   """
-  def get_all_rooms() do
-    house_party_pids = Swarm.members(__MODULE__)
+  def get_person_pid(nil), do: nil
+  def get_person_pid(person_name) when is_atom(person_name) do
+    typed_name = build_process_name(:person, person_name)
+    house_party_pids = Swarm.members(:house_party_people)
     Swarm.registered()
     |> Enum.filter(fn({_name, pid}) -> Enum.member?(house_party_pids, pid) end)
-    |> Enum.map(fn({name, _pid}) -> name end)
+    |> Enum.filter(fn({name, _pid}) -> name == typed_name end)
+    |> Enum.map(fn({_name, pid}) -> pid end)
+    |> List.first()
   end
 
   @doc """
@@ -191,10 +289,11 @@ defmodule HouseParty do
   """
   def get_room_pid(nil), do: nil
   def get_room_pid(room_name) when is_atom(room_name) do
-    house_party_pids = Swarm.members(__MODULE__)
+    typed_name = build_process_name(:room, room_name)
+    house_party_pids = Swarm.members(:house_party_rooms)
     Swarm.registered()
     |> Enum.filter(fn({_name, pid}) -> Enum.member?(house_party_pids, pid) end)
-    |> Enum.filter(fn({name, _pid}) -> name == room_name end)
+    |> Enum.filter(fn({name, _pid}) -> name == typed_name end)
     |> Enum.map(fn({_name, pid}) -> pid end)
     |> List.first()
   end
@@ -215,7 +314,7 @@ defmodule HouseParty do
       %{kitchen: [:bilal], living_room: [:peanut]}
   """
   def dump() do
-    __MODULE__
+    :house_party_rooms
     |> Swarm.multi_call({:dump})
     |> Enum.sort_by(fn({:ok, {room_name, _}}) -> room_name end)
     |> Enum.reduce(%{}, fn({:ok, {room_name, people_in_room}}, acc) ->
@@ -223,6 +322,51 @@ defmodule HouseParty do
     end)
   end
 
+  @doc """
+  Who is in a room
+
+  NOTE we could optimze by only dumping the room we need
+
+  ## Examples
+
+      iex> HouseParty.walk_into(:kitchen, :bilal)
+      iex> HouseParty.who_is_in(:kitchen)
+      [:bilal]
+  """
+  def who_is_in(room_name) do
+    dump() |> Map.get(room_name, [])
+  end
+
+  @doc """
+  Where is a person
+
+  ## Examples
+
+      iex> HouseParty.walk_into(:kitchen, :bilal)
+      iex> HouseParty.where_is(:bilal)
+      :kitchen
+  """
+  def where_is(person_name) do
+    dump()
+    |> Enum.filter(fn({_room_name, people}) -> Enum.member?(people, person_name) end)
+    |> Enum.map(fn({room_name, _people}) -> room_name end)
+    |> List.first()
+  end
+
+  @doc """
+  Create a process name for Swarm process registry
+
+  This takes 2 atoms :type and :name and merges them into a single :type_name
+  (could use anything to organize processes)
+
+  ## Examples
+
+      iex> HouseParty.build_process_name(:room, :den)
+      :room_den
+  """
+  def build_process_name(type, name) do
+    Atom.to_string(type) <> "_" <> Atom.to_string(name) |> String.to_atom()
+  end
 
   @doc """
   Testing with Swarm is kinda tricky,
@@ -238,4 +382,5 @@ defmodule HouseParty do
       end
     end)
   end
+
 end

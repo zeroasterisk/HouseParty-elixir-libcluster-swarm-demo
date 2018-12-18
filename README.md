@@ -30,48 +30,42 @@ Sadly, this example wont be quite so wild.
 
 ### The basic HouseParty API
 
+We add rooms and we can have people *walk into* rooms.
 
 ```elixir
-iex> HouseParty.add_room(:den)
+iex> HouseParty.add_rooms([:den, :living_room, :kitchen])
 :ok
-iex> HouseParty.add_room(:living_room)
+iex> HouseParty.walk_into(:kitchen, [:kid, :bilal])
 :ok
-iex> HouseParty.get_all_rooms()
-[:den, :living_room]
-```
-
-And we can have people *walk into* rooms.
-
-```elixir
-iex> HouseParty.add_rooms([:kitchen, :living_room])
+iex> HouseParty.walk_into(:living_room, [:play, :sidney, :kid])
 :ok
-iex> HouseParty.walk_into(:kitchen, :alan)
-:ok
-iex> HouseParty.walk_into(:living_room, :james)
-:ok
-iex> HouseParty.who_is_in(:living_room)
-[:james]
 iex> HouseParty.dump()
-%{kitchen: [:alan], living_room: [:james]}
+%{den: [], kitchen: [:bilal], living_room: [:kid, :play, :sidney]}
+iex> HouseParty.who_is_in(:kitchen)
+[:bilal]
+iex> HouseParty.where_is(:kid)
+:living_room
 ```
 
 A bit more about how people fit into rooms:
 * All rooms and people are represented by simple atoms.
 * All rooms and people are unique and idempotent (can only exist once).
 * People can only be in one room at a time, walking into a different room removes them from the previous room.
-* Trying to keep this simple, we do not have restrictions about which rooms can connect to other rooms, but we could...
+* Trying to keep this simple, we do not have restrictions about which rooms can connect to other rooms *(but we could...)*
+* Rooms default to a `max` of `10` people (can be configured per room) and when a room is `:full` nobody can go into it.
+* All rooms and people are GenServer Processes
+ * Room processes maintain a list of people in the room
+ * Person processes maintain a log of rooms entered
 
 ```elixir
 iex> HouseParty.add_rooms([:kitchen, :living_room, :bedroom_king])
-:ok
-iex> HouseParty.walk_into(:living_room, [:alan, :james, :lucy])
-:ok
-iex> HouseParty.walk_into(:bedroom_king, [:james, :lucy, :jess])
-:ok
-iex> HouseParty.dump([:living_room, :bedroom_king])
+iex> HouseParty.walk_into(:kitchen, 1..99 |> Enum.map(fn(i) -> "peep_#{i}" |> String.to_atom() end))
+{:error, :destination_full}
+iex> HouseParty.dump()
 %{
-  bedroom_king: [:james, :jess, :lucy],
-  living_room: [:alan],
+  bedroom_king: [],
+  kitchen: [:peep_1, :peep_2, :peep_3, :peep_4, :peep_5, :peep_6, :peep_7, :peep_8, :peep_9, :peep_10],
+  living_room: [],
 }
 ```
 
