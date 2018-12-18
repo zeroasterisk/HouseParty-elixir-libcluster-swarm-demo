@@ -21,7 +21,7 @@ defmodule HouseParty.RoomWorker do
   defp to_atom_mapset(str) when is_atom(str), do: [str] |> to_atom_mapset()
   defp to_atom_mapset(str) when is_bitstring(str), do: [str] |> to_atom_mapset()
   defp to_atom_mapset(str) when is_list(str), do: str |> Enum.map(&to_atom/1) |> MapSet.new()
-  defp to_atom_mapset(str) when is_map(str), do: str |> Enum.values() |> Enum.map(&to_atom/1) |> MapSet.new()
+  defp to_atom_mapset(str) when is_map(str), do: str |> Map.values() |> Enum.map(&to_atom/1) |> MapSet.new()
 
 
   @doc """
@@ -34,7 +34,7 @@ defmodule HouseParty.RoomWorker do
   def start_link(%RoomWorker{people: people} = state) when is_list(people) do
     state |> Map.put(:people, to_atom_mapset(people)) |> start_link()
   end
-  def start_link(%RoomWorker{name: name} = state) do
+  def start_link(%RoomWorker{name: name} = state) when is_atom(name) do
     GenServer.start_link(__MODULE__, state, [timeout: 10_000])
     # we could name the processes, pinning them to the atom of the room name
     # but doing so does not rely on the Swarm and is not multi-node.
@@ -48,11 +48,6 @@ defmodule HouseParty.RoomWorker do
   def stop(pid, reason \\ :normal), do: GenServer.stop(pid, reason)
 
   @doc """
-  Who is in this room (list)
-  """
-  def who_is_in(pid), do: GenServer.call(pid, {:who_is_in})
-
-  @doc """
   Dump details about the room
   """
   def dump(pid), do: GenServer.call(pid, {:dump})
@@ -60,7 +55,7 @@ defmodule HouseParty.RoomWorker do
   @doc """
   Add a person to this room
   """
-  def add_person([], person), do: :ok
+  def add_person([], _person), do: :ok
   def add_person([pid | rest], person) do
     case add_person(pid, person) do
       :ok -> add_person(rest, person)
@@ -73,7 +68,7 @@ defmodule HouseParty.RoomWorker do
   @doc """
   Remove a person from this room
   """
-  def rm_person([], person), do: :ok
+  def rm_person([], _person), do: :ok
   def rm_person([pid | rest], person) do
     case rm_person(pid, person) do
       :ok -> rm_person(rest, person)
@@ -92,11 +87,6 @@ defmodule HouseParty.RoomWorker do
   def handle_call({:dump}, _from, state) do
     out = {state.name, state.people |> MapSet.to_list()}
     {:reply, {:ok, out}, state}
-  end
-
-  # who is in this room right now? return a simple list of people
-  def handle_call({:who_is_in}, _from, %RoomWorker{people: people} = state) do
-    {:reply, {:ok, people |> MapSet.to_list()}, state}
   end
 
   # we add a person to this room (not in scope, removal from other rooms)
@@ -132,7 +122,7 @@ defmodule HouseParty.RoomWorker do
   # **NOTE**: This is called *after* the process is successfully started,
   # so make sure to design your processes around this caveat if you
   # wish to hand off state like this.
-  def handle_cast({:swarm, :end_handoff, state}, init_state) do
+  def handle_cast({:swarm, :end_handoff, state}, _init_state) do
     Logger.debug(fn() -> ":swarm :end_handoff #{inspect(state)}" end)
     {:noreply, state}
   end

@@ -46,22 +46,23 @@ defmodule HouseParty do
   """
   def add_rooms(), do: :ok
   def add_rooms([]), do: :ok
+  def add_rooms(rooms) when is_list(rooms), do: add_rooms(:ok, rooms)
+  def add_rooms(room) when is_bitstring(room) or is_atom(room), do: add_rooms(:ok, [room])
+  def add_rooms(_), do: {:error, "Invalid room argument"}
+  # process all rooms in a loop, until empty or error
   def add_rooms(:ok, []), do: :ok
   def add_rooms(:ok, [room | rest]) when is_atom(room) do
     {status, _} = room |> add_room()
     status |> add_rooms(rest)
   end
   def add_rooms(:error, _list), do: :error
-  def add_rooms(rooms) when is_list(rooms), do: add_rooms(:ok, rooms)
-  def add_rooms(room) when is_bitstring(room) or is_atom(room), do: add_rooms(:ok, [room])
-  def add_rooms(_), do: {:error, "Invalid room argument"}
 
 
   # Add a room (not used externally)
   defp add_room(room) when is_bitstring(room), do: room |> String.to_atom() |> add_room()
   defp add_room(room) when is_atom(room) do
     name = build_process_name(:room, room)
-    name |> Swarm.register_name(HouseParty.RoomWorker, :start_link, [room]) |> add_room_finish()
+    name |> Swarm.register_name(RoomWorker, :start_link, [room]) |> add_room_finish()
   end
   # handle the output from Swarm.register_name and auto-join the group if possible
   defp add_room_finish({:ok, pid}) do
@@ -99,7 +100,7 @@ defmodule HouseParty do
 
       iex> HouseParty.reset()
       iex> HouseParty.add_rooms([:kitchen, :living_room])
-      iex> HouseParty.walk_into(:living_room, :peanut)
+      iex> HouseParty.walk_into(:living_room, :peanut) |> HousePartyTest.end_tests()
       :ok
 
   """
@@ -175,7 +176,7 @@ defmodule HouseParty do
     acc |> Map.put(:status_add, :skip)
   end
   defp walk_into_add_person(%WalkIntoProc{person: person, room_pid: room_pid} = acc) when is_atom(person) and is_pid(room_pid) do
-    acc |> Map.put(:status_add, HouseParty.RoomWorker.add_person(room_pid, person))
+    acc |> Map.put(:status_add, RoomWorker.add_person(room_pid, person))
   end
 
   # remove from old room
@@ -189,7 +190,7 @@ defmodule HouseParty do
     acc |> Map.put(:status_rm, :ok) # no need to rm, but do need to log
   end
   defp walk_into_rm_person(%WalkIntoProc{status_add: :ok, person: person, current_room_pid: current_room_pid} = acc) do
-    acc |> Map.put(:status_rm, HouseParty.RoomWorker.rm_person(current_room_pid, person))
+    acc |> Map.put(:status_rm, RoomWorker.rm_person(current_room_pid, person))
   end
 
   # log the entry into the Person's process
@@ -215,7 +216,7 @@ defmodule HouseParty do
       iex> HouseParty.reset()
       iex> HouseParty.add_rooms([:kitchen, :living_room])
       iex> HouseParty.walk_into(:living_room, :peanut)
-      iex> HouseParty.get_current_room(:peanut)
+      iex> HouseParty.get_current_room(:peanut) |> HousePartyTest.end_tests()
       :living_room
 
   """
@@ -236,7 +237,7 @@ defmodule HouseParty do
       iex> HouseParty.reset()
       iex> HouseParty.add_rooms([:kitchen, :living_room])
       iex> HouseParty.walk_into(:living_room, :peanut)
-      iex> HouseParty.leave(:peanut)
+      iex> HouseParty.leave(:peanut) |> HousePartyTest.end_tests()
       :ok
 
   """
@@ -244,7 +245,7 @@ defmodule HouseParty do
     person
     |> get_current_room()
     |> get_room_pid()
-    |> HouseParty.RoomWorker.rm_person(person)
+    |> RoomWorker.rm_person(person)
   end
 
   @doc """
@@ -313,7 +314,7 @@ defmodule HouseParty do
       iex> HouseParty.add_rooms([:kitchen, :living_room])
       iex> HouseParty.walk_into(:kitchen, :bilal)
       iex> HouseParty.walk_into(:living_room, :peanut)
-      iex> HouseParty.dump()
+      iex> HouseParty.dump() |> HousePartyTest.end_tests()
       %{kitchen: [:bilal], living_room: [:peanut]}
   """
   def dump() do

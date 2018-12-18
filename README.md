@@ -18,15 +18,16 @@ In the 1990 classic, [House Party](https://www.imdb.com/title/tt0099800/):
 
 Sadly, this example wont be quite so wild.
 
-* Instead we will create any number of **rooms**, and **people** will roam into rooms.
+* Instead we will create any number of **rooms**, and **people** will walk into rooms.
 * Each room and each person are independent
   [OTP processes](https://elixir-lang.org/getting-started/mix-otp/genserver.html).
-* Our application will running on multiple server nodes, managed by
+* Our application will be running on multiple server nodes, managed by
   [kubernetes cluster](https://kubernetes.io)
 * Our application nodes will be connected into an Erlang Cluster by
-  [libcluster](https://github.com/bitwalker/libcluster)
+  [libcluster](https://github.com/bitwalker/libcluster) (self-healing)
 * Our processes will be started on any node, and messages will be sent to the *correct* node &amp; process, by
   [swarm](https://github.com/bitwalker/swarm)
+* Our processes will be migrated in case of node-shutdown, and state transferred, also by swarm.
 
 Just to be clear, there is no database nor cache - all state lives in GenServers (RAM).
 

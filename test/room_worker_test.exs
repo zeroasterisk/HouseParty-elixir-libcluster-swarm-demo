@@ -20,46 +20,38 @@ defmodule HousePartyRoomWorkerTest do
   test "starts GenServer, add people" do
     {:ok, pid_1} = HouseParty.RoomWorker.start_link(:test_room_1)
     assert HouseParty.RoomWorker.add_person(pid_1, :person_2) == :ok
-    {:ok, people} = HouseParty.RoomWorker.who_is_in(pid_1)
-    assert people == [:person_2]
+    assert HouseParty.RoomWorker.dump(pid_1) == {:ok, {:test_room_1, [:person_2]}}
     # auto-sorted because it's a MapSet under the hood
     assert HouseParty.RoomWorker.add_person(pid_1, :person_1) == :ok
-    {:ok, people} = HouseParty.RoomWorker.who_is_in(pid_1)
-    assert people == [:person_1, :person_2]
+    assert HouseParty.RoomWorker.dump(pid_1) == {:ok, {:test_room_1, [:person_1, :person_2]}}
     # auto-idempotent because it's a MapSet under the hood
     assert HouseParty.RoomWorker.add_person(pid_1, :person_1) == :ok
-    {:ok, people} = HouseParty.RoomWorker.who_is_in(pid_1)
-    assert people == [:person_1, :person_2]
+    assert HouseParty.RoomWorker.dump(pid_1) == {:ok, {:test_room_1, [:person_1, :person_2]}}
     assert HouseParty.RoomWorker.stop(pid_1, :normal) == :ok
     assert_down(pid_1)
   end
   test "starts GenServer, add list of people" do
     {:ok, pid_1} = HouseParty.RoomWorker.start_link(:test_room_1)
     assert HouseParty.RoomWorker.add_person(pid_1, [:person_1, :person_2]) == :ok
-    {:ok, people} = HouseParty.RoomWorker.who_is_in(pid_1)
-    assert people == [:person_1, :person_2]
+    assert HouseParty.RoomWorker.dump(pid_1) == {:ok, {:test_room_1, [:person_1, :person_2]}}
     assert HouseParty.RoomWorker.stop(pid_1, :normal) == :ok
     assert_down(pid_1)
   end
   test "starts GenServer, add and remove people" do
     {:ok, pid_1} = HouseParty.RoomWorker.start_link(:test_room_1)
     assert HouseParty.RoomWorker.add_person(pid_1, [:person_1, :person_2]) == :ok
-    {:ok, people} = HouseParty.RoomWorker.who_is_in(pid_1)
-    assert people == [:person_1, :person_2]
+    assert HouseParty.RoomWorker.dump(pid_1) == {:ok, {:test_room_1, [:person_1, :person_2]}}
     assert HouseParty.RoomWorker.rm_person(pid_1, :person_2) == :ok
-    {:ok, people} = HouseParty.RoomWorker.who_is_in(pid_1)
-    assert people == [:person_1]
+    assert HouseParty.RoomWorker.dump(pid_1) == {:ok, {:test_room_1, [:person_1]}}
     assert HouseParty.RoomWorker.stop(pid_1, :normal) == :ok
     assert_down(pid_1)
   end
   test "starts GenServer, add and remove list of people" do
     {:ok, pid_1} = HouseParty.RoomWorker.start_link(:test_room_1)
     assert HouseParty.RoomWorker.add_person(pid_1, [:person_1, :person_2]) == :ok
-    {:ok, people} = HouseParty.RoomWorker.who_is_in(pid_1)
-    assert people == [:person_1, :person_2]
+    assert HouseParty.RoomWorker.dump(pid_1) == {:ok, {:test_room_1, [:person_1, :person_2]}}
     assert HouseParty.RoomWorker.rm_person(pid_1, [:person_1, :person_2]) == :ok
-    {:ok, people} = HouseParty.RoomWorker.who_is_in(pid_1)
-    assert people == []
+    assert HouseParty.RoomWorker.dump(pid_1) == {:ok, {:test_room_1, []}}
     assert HouseParty.RoomWorker.stop(pid_1, :normal) == :ok
     assert_down(pid_1)
   end
@@ -67,11 +59,10 @@ defmodule HousePartyRoomWorkerTest do
     {:ok, pid_1} = HouseParty.RoomWorker.start_link(%{
       name: :test_room_1,
       max: 3,
-      people: [:one, :two, :three],
+      people: [:a, :b, :c],
     })
-    assert HouseParty.RoomWorker.add_person(pid_1, [:four]) == :full
-    {:ok, people} = HouseParty.RoomWorker.who_is_in(pid_1)
-    assert people == [:one, :three, :two]
+    assert HouseParty.RoomWorker.add_person(pid_1, [:d]) == :full
+    assert HouseParty.RoomWorker.dump(pid_1) == {:ok, {:test_room_1, [:a, :b, :c]}}
     assert HouseParty.RoomWorker.stop(pid_1, :normal) == :ok
     assert_down(pid_1)
   end
