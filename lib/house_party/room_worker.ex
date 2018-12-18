@@ -3,7 +3,7 @@ defmodule HouseParty.RoomWorker do
   alias HouseParty.RoomWorker
   require Logger
   @moduledoc """
-  This is the worker process, in this case,
+  This is the worker process for Rooms, in this case,
   It is responsible for a single room in our house.
   It maintains state on who is in that room.
   """
@@ -53,6 +53,11 @@ defmodule HouseParty.RoomWorker do
   def who_is_in(pid), do: GenServer.call(pid, {:who_is_in})
 
   @doc """
+  Dump details about the room
+  """
+  def dump(pid), do: GenServer.call(pid, {:dump})
+
+  @doc """
   Add a person to this room
   """
   def add_person([], person), do: :ok
@@ -97,7 +102,7 @@ defmodule HouseParty.RoomWorker do
   # we add a person to this room (not in scope, removal from other rooms)
   def handle_call({:add_person, new_people}, _from, %RoomWorker{people: people, max: max} = state) do
     people = people |> MapSet.union(to_atom_mapset(new_people))
-    if Enum.count(people) < max do
+    if Enum.count(people) <= max do
       {:reply, :ok, state |> Map.put(:people, people)}
     else
       {:reply, :full, state}
