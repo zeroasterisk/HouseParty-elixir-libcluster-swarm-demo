@@ -9,9 +9,15 @@ defmodule HouseParty do
 
   ## Examples
 
+      iex> HouseParty.reset()
       iex> HouseParty.add_rooms()
       :ok
 
+      iex> HouseParty.reset()
+      iex> HouseParty.add_rooms(:kitchen)
+      :ok
+
+      iex> HouseParty.reset()
       iex> HouseParty.add_rooms([:kitchen, :living_room])
       :ok
 
@@ -44,8 +50,9 @@ defmodule HouseParty do
 
   ## Examples
 
+      iex> HouseParty.reset()
       iex> HouseParty.add_rooms([:kitchen, :living_room])
-      iex> HouseParty.walk_into(:living_room, :james)
+      iex> HouseParty.walk_into(:living_room, :peanut)
       :ok
 
   """
@@ -106,9 +113,10 @@ defmodule HouseParty do
 
   ## Examples
 
+      iex> HouseParty.reset()
       iex> HouseParty.add_rooms([:kitchen, :living_room])
-      iex> HouseParty.walk_into(:living_room, :james)
-      iex> HouseParty.get_current_room(:james)
+      iex> HouseParty.walk_into(:living_room, :peanut)
+      iex> HouseParty.get_current_room(:peanut)
       :living_room
 
   """
@@ -126,9 +134,10 @@ defmodule HouseParty do
 
   ## Examples
 
+      iex> HouseParty.reset()
       iex> HouseParty.add_rooms([:kitchen, :living_room])
-      iex> HouseParty.walk_into(:living_room, :james)
-      iex> HouseParty.leave(:james)
+      iex> HouseParty.walk_into(:living_room, :peanut)
+      iex> HouseParty.leave(:peanut)
       :ok
 
   """
@@ -151,7 +160,7 @@ defmodule HouseParty do
 
   ## Examples
 
-      iex> Swarm.registered() |> Enum.map(fn({_name, pid}) -> GenServer.stop(pid) end)
+      iex> HouseParty.reset()
       iex> HouseParty.add_rooms([:kitchen, :living_room])
       iex> HouseParty.add_rooms([:hallway, :den])
       iex> HouseParty.get_all_rooms() |> HousePartyTest.end_tests()
@@ -170,11 +179,12 @@ defmodule HouseParty do
 
   ## Examples
 
-      iex> Swarm.registered() |> Enum.map(fn({_name, pid}) -> GenServer.stop(pid) end)
+      iex> HouseParty.reset()
       iex> HouseParty.add_rooms([:kitchen])
       iex> HouseParty.get_room_pid(:kitchen) |> HousePartyTest.end_tests() |> is_pid()
       true
 
+      iex> HouseParty.reset()
       iex> HouseParty.get_room_pid(nil)
       nil
 
@@ -199,10 +209,10 @@ defmodule HouseParty do
   ## Examples
 
       iex> HouseParty.add_rooms([:kitchen, :living_room])
-      iex> HouseParty.walk_into(:kitchen, :alan)
-      iex> HouseParty.walk_into(:living_room, :james)
+      iex> HouseParty.walk_into(:kitchen, :bilal)
+      iex> HouseParty.walk_into(:living_room, :peanut)
       iex> HouseParty.dump()
-      %{kitchen: [:alan], living_room: [:james]}
+      %{kitchen: [:bilal], living_room: [:peanut]}
   """
   def dump() do
     __MODULE__
@@ -210,6 +220,22 @@ defmodule HouseParty do
     |> Enum.sort_by(fn({:ok, {room_name, _}}) -> room_name end)
     |> Enum.reduce(%{}, fn({:ok, {room_name, people_in_room}}, acc) ->
       acc |> Map.put(room_name, people_in_room)
+    end)
+  end
+
+
+  @doc """
+  Testing with Swarm is kinda tricky,
+  because the doctest processes stay open and want to over-lap with eachother.
+
+  This is basically a doctest_start function to trash all standing processes before a test
+  """
+  def reset() do
+    Swarm.registered()
+    |> Enum.map(fn({_name, pid}) ->
+      if Process.alive?(pid) do
+        GenServer.stop(pid)
+      end
     end)
   end
 end

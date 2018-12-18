@@ -7,8 +7,8 @@ defmodule HousePartyTest do
   """
   def common_setup do
     HouseParty.add_rooms([:kitchen, :living_room, :bedroom_king])
-    HouseParty.walk_into(:living_room, [:alan, :james, :lucy])
-    HouseParty.walk_into(:bedroom_king, [:james, :lucy, :jess])
+    HouseParty.walk_into(:living_room, [:kid, :play, :sidney])
+    HouseParty.walk_into(:bedroom_king, [:play, :sidney, :ladonna])
   end
   def setup do
     on_exit fn ->
@@ -38,13 +38,27 @@ defmodule HousePartyTest do
   end
   test "walk into specific rooms, ensures idempotency" do
     assert HouseParty.add_rooms([:kitchen, :living_room, :bedroom_king]) == :ok
-    assert HouseParty.walk_into(:living_room, [:alan, :james, :lucy]) == :ok
-    assert HouseParty.walk_into(:bedroom_king, [:james, :lucy, :jess]) == :ok
+    assert HouseParty.walk_into(:living_room, [:kid, :play, :sidney]) == :ok
+    assert HouseParty.walk_into(:bedroom_king, [:play, :ladonna, :sidney]) == :ok
     assert HouseParty.dump() == %{
-      bedroom_king: [:james, :jess, :lucy],
-      living_room: [:alan],
+      bedroom_king: [:ladonna, :play, :sidney],
+      living_room: [:kid],
       kitchen: [],
     }
+    end_tests()
+  end
+  test "ensure we can only walk into a room, up to max people, people stay in their room" do
+    assert HouseParty.add_rooms([:kitchen, :living_room]) == :ok
+    assert HouseParty.walk_into(:kitchen, 1..9 |> Enum.map(fn(i) -> String.to_atom("cook_#{i}") end)) == :ok
+    assert HouseParty.walk_into(:living_room, 1..9 |> Enum.map(fn(i) -> String.to_atom("rando_#{i}") end)) == :ok
+    init_dump = HouseParty.dump()
+    # no new people from outside
+    assert HouseParty.walk_into(:kitchen, :cook_10) == {:error, :destination_full}
+    assert HouseParty.dump() == init_dump
+    # no moving people from old room to new room (stays in old)
+    assert HouseParty.walk_into(:kitchen, :rando_1) == {:error, :destination_full}
+    assert HouseParty.dump() == init_dump
+
     end_tests()
   end
 end

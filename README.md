@@ -1,17 +1,32 @@
 # HouseParty
 
-A simple example of OTP process state, and
-[kubernetes](https://kubernetes.io)
-(or other) cluster managed by
-[libcluster](https://github.com/bitwalker/libcluster)
-and
+A simple example of OTP process state, in a
+[kubernetes cluster](https://kubernetes.io)
+(or other) managed by
+[libcluster](https://github.com/bitwalker/libcluster),
+and process registry and management with
 [swarm](https://github.com/bitwalker/swarm).
+
 
 ## Basics of our GenServer
 
-OTP FTW!
+[![House Party Poster](./houseparty_poster.jpg)](https://www.imdb.com/title/tt0099800/)
 
-In this case, we will use *Swarm* to start processes which will manage rooms, one worker process for each room.
+In the 1990 classic, [House Party](https://www.imdb.com/title/tt0099800/):
+
+> Kid decides to go to his friend Play's house party, but neither of them can predict what's in store for them on what could be the wildest night of their lives.
+
+Sadly, this example wont be quite so wild.
+
+* Instead we will create any number of **rooms**, and **people** will roam into rooms.
+* Each room and each person are independent
+  [OTP processes](https://elixir-lang.org/getting-started/mix-otp/genserver.html).
+* Our application will running on multiple server nodes, managed by
+  [kubernetes cluster](https://kubernetes.io)
+* Our application nodes will be connected into an Erlang Cluster by
+  [libcluster](https://github.com/bitwalker/libcluster)
+* Our processes will be started on any node, and messages will be sent to the *correct* node &amp; process, by
+  [swarm](https://github.com/bitwalker/swarm)
 
 ### The basic HouseParty API
 
