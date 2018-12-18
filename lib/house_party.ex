@@ -22,6 +22,8 @@ defmodule HouseParty do
   Documentation for HouseParty.
   """
   require Logger
+  alias HouseParty.PersonWorker
+  alias HouseParty.RoomWorker
   alias HouseParty.WalkIntoProc
 
   @doc """
@@ -76,7 +78,7 @@ defmodule HouseParty do
   # Add a person (not used externally)
   defp add_person(person) when is_atom(person) do
     name = build_process_name(:person, person)
-    name |> Swarm.register_name(HouseParty.PersonWorker, :start_link, [person]) |> add_person_finish()
+    name |> Swarm.register_name(PersonWorker, :start_link, [person]) |> add_person_finish()
   end
   # handle the output from Swarm.register_name and auto-join the group if possible
   defp add_person_finish({:ok, pid}) do
@@ -192,7 +194,7 @@ defmodule HouseParty do
 
   # log the entry into the Person's process
   defp walk_into_log(%WalkIntoProc{status_add: :ok, person_pid: person_pid, room: room} = acc) do
-    acc |> Map.put(:status_log, HouseParty.PersonWorker.enter(person_pid, room))
+    acc |> Map.put(:status_log, PersonWorker.enter(person_pid, room))
   end
   defp walk_into_log(%WalkIntoProc{} = acc) do
     acc |> Map.put(:status_log, :skip)
@@ -307,6 +309,7 @@ defmodule HouseParty do
 
   ## Examples
 
+      iex> HouseParty.reset()
       iex> HouseParty.add_rooms([:kitchen, :living_room])
       iex> HouseParty.walk_into(:kitchen, :bilal)
       iex> HouseParty.walk_into(:living_room, :peanut)
@@ -329,6 +332,7 @@ defmodule HouseParty do
 
   ## Examples
 
+      iex> HouseParty.reset()
       iex> HouseParty.walk_into(:kitchen, :bilal)
       iex> HouseParty.who_is_in(:kitchen)
       [:bilal]
@@ -342,6 +346,7 @@ defmodule HouseParty do
 
   ## Examples
 
+      iex> HouseParty.reset()
       iex> HouseParty.walk_into(:kitchen, :bilal)
       iex> HouseParty.where_is(:bilal)
       :kitchen
@@ -351,6 +356,45 @@ defmodule HouseParty do
     |> Enum.filter(fn({_room_name, people}) -> Enum.member?(people, person_name) end)
     |> Enum.map(fn({room_name, _people}) -> room_name end)
     |> List.first()
+  end
+
+  @doc """
+  Dump person log
+
+  NOTE uses datetime entries, so difficult to doctest nicely:
+
+      HouseParty.walk_into(:kitchen, :kid)
+      HouseParty.walk_into(:den, :kid)
+      HouseParty.walk_into(:bathroom, :kid)
+      HouseParty.walk_into(:den, :kid)
+      HouseParty.get_person_room_log(:kid)
+      [
+        {#DateTime<2018-12-18 05:34:34.928962Z>, :den},
+        {#DateTime<2018-12-18 05:34:34.928467Z>, :bathroom},
+        {#DateTime<2018-12-18 05:34:34.927777Z>, :den},
+        {#DateTime<2018-12-18 05:34:34.927067Z>, :kitchen}
+      ]
+
+  ## Examples
+
+      iex> HouseParty.reset()
+      iex> HouseParty.walk_into(:kitchen, :kid)
+      iex> HouseParty.walk_into(:den, :kid)
+      iex> HouseParty.walk_into(:bathroom, :kid)
+      iex> HouseParty.walk_into(:den, :kid)
+      iex> HouseParty.get_person_room_log(:kid) |> Enum.map(fn({_dt, room}) -> room end)
+      [
+        :den,
+        :bathroom,
+        :den,
+        :kitchen
+      ]
+  """
+  def get_person_room_log(person_name) do
+    case person_name |> get_person_pid() |> PersonWorker.dump() do
+      {:ok, %PersonWorker{log: log}} -> log
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """

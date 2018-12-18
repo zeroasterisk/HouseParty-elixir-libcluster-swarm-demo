@@ -11,6 +11,7 @@ defmodule HousePartyTest do
     HouseParty.walk_into(:bedroom_king, [:play, :sidney, :ladonna])
   end
   def setup do
+    HouseParty.reset()
     on_exit fn -> end_tests() end
   end
   def end_tests(output \\ :ok) do

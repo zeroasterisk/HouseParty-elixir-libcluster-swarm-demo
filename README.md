@@ -28,6 +28,14 @@ Sadly, this example wont be quite so wild.
 * Our processes will be started on any node, and messages will be sent to the *correct* node &amp; process, by
   [swarm](https://github.com/bitwalker/swarm)
 
+Just to be clear, there is no database nor cache - all state lives in GenServers (RAM).
+
+These processes live on several different physical machines, and automatically migrate between them without loosing state.
+
+This has been run with 500_000 running processes across 3 nodes / physical machines, and could easily go higher.
+
+**TODO verify above claims, provide metrics**
+
 ### The basic HouseParty API
 
 We add rooms and we can have people *walk into* rooms.
@@ -53,52 +61,84 @@ A bit more about how people fit into rooms:
 * People can only be in one room at a time, walking into a different room removes them from the previous room.
 * Trying to keep this simple, we do not have restrictions about which rooms can connect to other rooms *(but we could...)*
 * Rooms default to a `max` of `10` people (can be configured per room) and when a room is `:full` nobody can go into it.
-* All rooms and people are GenServer Processes
- * Room processes maintain a list of people in the room
- * Person processes maintain a log of rooms entered
 
 ```elixir
-iex> HouseParty.add_rooms([:kitchen, :living_room, :bedroom_king])
+iex> HouseParty.add_rooms([:kitchen, :living_room, :bathroom])
 iex> HouseParty.walk_into(:kitchen, 1..99 |> Enum.map(fn(i) -> "peep_#{i}" |> String.to_atom() end))
 {:error, :destination_full}
 iex> HouseParty.dump()
 %{
-  bedroom_king: [],
+  bathroom: [],
   kitchen: [:peep_1, :peep_2, :peep_3, :peep_4, :peep_5, :peep_6, :peep_7, :peep_8, :peep_9, :peep_10],
   living_room: [],
 }
+iex> HouseParty.walk_into(:kitchen, :kid)
+iex> HouseParty.walk_into(:den, :kid)
+iex> HouseParty.walk_into(:bathroom, :kid)
+iex> HouseParty.walk_into(:den, :kid)
+iex> HouseParty.get_person_room_log(:kid) |> Enum.map(fn({_dt, room}) -> room end)
+[
+  {#DateTime<2018-12-18 05:34:34.928962Z>, :den},
+  {#DateTime<2018-12-18 05:34:34.928467Z>, :bathroom},
+  {#DateTime<2018-12-18 05:34:34.927777Z>, :den},
+  {#DateTime<2018-12-18 05:34:34.927067Z>, :kitchen}
+]
 ```
+
+* All rooms and people are GenServer Processes
+ * Room processes maintain a list of people in the room
+ * Person processes maintain a log of rooms entered
 
 ## Basics of Swarm
 
-Swarm takes care of *distributing* these Rooms to any available nodes in our cluster
-and maintaining a *registry* of processes, so we can easily access them by name,
-no matter where the process is running.
+We start all of our Room and Person worker *Processes* with Swarm:
 
-TODO add more information about how swarm is used
-TODO add more information about groups of pids
+```elixir
+{:ok, den_room_pid} = Swarm.register_name(:room_den, HouseParty.RoomWorker, :start_link, [:den])
+{:ok, kid_person_pid} = Swarm.register_name(:person_kid, HouseParty.PersonWorker, :start_link, [:kid])
+```
 
-### Swarm.multi_call is a great convenience
+We also create groups of pids, allowing Swarm keep track of *types of processes*:
+
+```elixir
+:ok = Swarm.join(:house_party_rooms, den_room_pid)
+:ok = Swarm.join(:house_party_people, kid_person_pid)
+```
+
+Swarm can start the process on any of our servers/nodes in the cluster.
+
+The Swarm registry keeps track of where a process is running. And the groups allow for process grouping.
+
+```elixir
+assert Swarm.registered() == [room_den: den_room_pid, person_kid: kid_person_pid]
+assert Swarm.members(:house_party_rooms) == [den_room_pid]
+assert Swarm.members(:house_party_people) == [kid_person_pid]
+```
+
+Given those two sets of information, we can *find* a process, and send it messages.
+
+Swarm also gives us a convenient way to trigger a `GenServer.call()` on every process in a specific group.
 
 In `HouseParty.dump()` we use use `Swarm.multi_call()` to send a message to all of our nodes/processes in parallel and aggregate their results.
 
 This is easier and more efficient than selecting all of their names/pids and sending each a message and aggregating in my code.
 
 ```
-Swarm.multi_call(HouseParty, {:who_is_in})
-[ok: [:alan], ok: [:james], ok: []]
-
-Swarm.multi_call(HouseParty, {:dump})
+Swarm.multi_call(:house_party_rooms, {:dump})
 [
-  ok: {:kitchen, MapSet.new([:alan])},
-  ok: {:living_room, MapSet.new([:james])},
-  ok: {:den, MapSet.new([])},
+  ok: {:kitchen, [:kid, :play]},
+  ok: {:living_room, [:bilal]},
+  ok: {:den, []},
 ]
 ```
 
+Swarm also comes with process migration, and lifecycle management.
+This allows us to move a process from one server to another.
+
+**TODO build out an example**
+
 ## Basics of our Cluster
 
-There is no database in this example.  All state lives in GenServers.
 
 But state must migrate when nodes add/exit the cluster.  That's the responsibility of `libcluster` and `swarm`.
 
