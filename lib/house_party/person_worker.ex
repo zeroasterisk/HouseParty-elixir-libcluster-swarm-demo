@@ -12,6 +12,10 @@ defmodule HouseParty.PersonWorker do
     name: nil, # atom
     personality: :introvert,
     log: [], # [{<time>, <room>}, ...]
+    current_room: nil,
+    count: 0, # how many rooms person has entered
+    max: 100, # how many rooms until person leaves
+    wander_delay_ms: 1000, # when wandering, move rooms after this delay (in ms)
   ]
 
   # helpers to convert into atom
@@ -47,6 +51,12 @@ defmodule HouseParty.PersonWorker do
   def enter(nil), do: :ok
   def enter(pid, room), do: GenServer.call(pid, {:enter, room})
 
+  @doc """
+  Wander between rooms
+  This will start a delayed loop of wandering until the person is done and wants to leave
+  """
+  def wander(pid), do: GenServer.cast(pid, {:wander})
+
 
   # initialize the GenServer to maintain the state of the application
   def init(%PersonWorker{} = state) do
@@ -61,7 +71,11 @@ defmodule HouseParty.PersonWorker do
 
   # log that a person has entered a room
   def handle_call({:enter, room}, _from, %PersonWorker{log: log} = state) do
-    state = state |> Map.put(:log, [{DateTime.utc_now, room} | log])
+    state = state |> Map.merge(%{
+      current_room: room,
+      count: Enum.count(log) + 1,
+      log: [{DateTime.utc_now, room} | log],
+    })
     {:reply, :ok, state}
   end
 
@@ -95,6 +109,41 @@ defmodule HouseParty.PersonWorker do
     Logger.debug(fn() -> ":swarm :resolve_conflict #{inspect(state)} got a resolve_conflict message from other node #{inspect(other_node_state)}" end)
     {:noreply, state}
   end
+
+
+  # start wandering between rooms
+  def handle_cast({:wander}, _from, %PersonWorker{current_room: :outside} = state) do
+    Logger.info(fn() -> "Person #{state.name} tried to wander but was already outside" end)
+    {:noreply, state}
+  end
+  def handle_cast({:wander}, _from, %PersonWorker{max: max, count: count} = state) when count >= max do
+    Logger.info(fn() -> "Person #{state.name} is done, ready to leave" end)
+    HouseParty.leave(state.name)
+    {:noreply, state |> Map.put(:current_room, :outside)}
+  end
+  def handle_cast({:wander}, _from, %PersonWorker{current_room: current_room, wander_delay_ms: wander_delay_ms} = state) do
+    new_room = HouseParty.get_all_rooms()
+               |> Enum.reject(fn(room) -> room == current_room end)
+               |> Enum.random()
+
+    case HouseParty.walk_into(new_room, state.name) do
+      :ok ->
+        Logger.info(fn() -> "Person #{state.name} is wandering, leaving #{current_room}, entered #{new_room}" end)
+      {:error, :destination_full} ->
+        Logger.info(fn() -> "Person #{state.name} is wandering, leaving #{current_room}, tried #{new_room} but it was full" end)
+      _ ->
+        Logger.info(fn() -> "Person #{state.name} is wandering, leaving #{current_room}, tried #{new_room} but was not able" end)
+    end
+    # we may have changed the state of the person
+    new_state = PersonWorker.dump(self())
+
+    # recycle
+    Process.send_after(self(), {:wander}, wander_delay_ms)
+
+    {:noreply, new_state}
+  end
+
+
 
   # this message is sent when this process should die
   # because it is being moved, use this as an opportunity

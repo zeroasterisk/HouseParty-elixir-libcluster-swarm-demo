@@ -26,6 +26,7 @@ defmodule HousePartyTest do
     ref = Process.monitor(pid)
     assert_receive {:DOWN, ^ref, _, _, _}
   end
+
   test "build a house, by adding a list of rooms" do
     assert HouseParty.add_rooms([:kitchen, :living_room, :bedroom_king]) == :ok
     assert HouseParty.dump() == %{

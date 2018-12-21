@@ -302,6 +302,26 @@ defmodule HouseParty do
   end
 
   @doc """
+  Get all room names
+
+  ## Examples
+
+      iex> HouseParty.reset()
+      iex> HouseParty.add_rooms([:kitchen, :den])
+      iex> HouseParty.get_all_rooms() |> HousePartyTest.end_tests()
+      [:den, :kitchen]
+
+  """
+  def get_all_rooms() do
+    house_party_pids = Swarm.members(:house_party_rooms)
+    Swarm.registered()
+    |> Enum.filter(fn({_name, pid}) -> Enum.member?(house_party_pids, pid) end)
+    |> Enum.map(fn({name, _pid}) ->
+      name |> Atom.to_string() |> String.slice(5, 99) |> String.to_atom
+    end)
+  end
+
+  @doc """
   Dump people in all of the rooms
 
   We could list all rooms and dump each...
