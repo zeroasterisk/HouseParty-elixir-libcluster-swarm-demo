@@ -10,30 +10,20 @@ defmodule HouseParty.PersonWorker do
 
   defstruct [
     name: nil, # atom
-    personality: :introvert,
-    log: [], # [{<time>, <room>}, ...]
-    current_room: nil,
+    current_room: nil, # nil = not yet entered, :left_party = gone, or a room name
     count: 0, # how many rooms person has entered
     max: 100, # how many rooms until person leaves
     wander_delay_ms: 1000, # when wandering, move rooms after this delay (in ms)
+    log: [], # [{<time>, <room>}, ...]
   ]
-
-  # helpers to convert into atom
-  defp to_atom(str) when is_atom(str), do: str
-  defp to_atom(str) when is_bitstring(str), do: String.to_atom(str)
-
 
   @doc """
   Easy API to start a person worker
   """
-  def start_link(name) when is_bitstring(name) or is_atom(name), do: start_link(%PersonWorker{name: name})
-  def start_link(%PersonWorker{name: name} = state) when is_bitstring(name) do
-    state |> Map.put(:name, String.to_atom(name)) |> start_link()
-  end
-  def start_link(%PersonWorker{name: name} = state) do
+  def start_link(name) when is_atom(name), do: start_link(%PersonWorker{name: name})
+  def start_link(%PersonWorker{name: name} = state) when is_atom(name) do
     GenServer.start_link(__MODULE__, state, [timeout: 10_000])
   end
-  def start_link(%{} = state), do: %PersonWorker{} |> Map.merge(state) |> start_link()
 
   @doc """
   Stop
@@ -41,22 +31,19 @@ defmodule HouseParty.PersonWorker do
   def stop(pid, reason \\ :normal), do: GenServer.stop(pid, reason)
 
   @doc """
-  Dump details about the room
+  Dump details about the person
   """
   def dump(pid), do: GenServer.call(pid, {:dump})
 
   @doc """
   Log entering a room
   """
-  def enter(nil), do: :ok
-  def enter(pid, room), do: GenServer.call(pid, {:enter, room})
+  def walk_into(pid, room) when is_pid(pid) and is_atom(room), do: GenServer.call(pid, {:walk_into, room})
 
   @doc """
-  Wander between rooms
-  This will start a delayed loop of wandering until the person is done and wants to leave
+  Start wander-loop, until done wandering
   """
-  def wander(pid), do: GenServer.cast(pid, {:wander})
-
+  def wanderlust(pid), do: GenServer.call(pid, {:wanderlust})
 
   # initialize the GenServer to maintain the state of the application
   def init(%PersonWorker{} = state) do
@@ -70,14 +57,12 @@ defmodule HouseParty.PersonWorker do
   end
 
   # log that a person has entered a room
-  def handle_call({:enter, room}, _from, %PersonWorker{log: log} = state) do
-    state = state |> Map.merge(%{
-      current_room: room,
-      count: Enum.count(log) + 1,
-      log: [{DateTime.utc_now, room} | log],
-    })
-    {:reply, :ok, state}
+  def handle_call({:walk_into, new_room}, _from, %PersonWorker{} = state) when is_atom(:new_room) do
+    movement = lookup_pids_for_move(state, new_room)
+    new_state = HouseParty.PersonMove.walk_into(state, movement)
+    {:reply, :ok, new_state}
   end
+
 
   # called when a handoff has been initiated due to changes
   # in cluster topology, valid response values are:
@@ -96,7 +81,7 @@ defmodule HouseParty.PersonWorker do
   # **NOTE**: This is called *after* the process is successfully started,
   # so make sure to design your processes around this caveat if you
   # wish to hand off state like this.
-  def handle_cast({:swarm, :end_handoff, state}, init_state) do
+  def handle_cast({:swarm, :end_handoff, state}, _init_state) do
     Logger.debug(fn() -> ":swarm :end_handoff #{inspect(state)}" end)
     {:noreply, state}
   end
@@ -112,34 +97,14 @@ defmodule HouseParty.PersonWorker do
 
 
   # start wandering between rooms
-  def handle_cast({:wander}, _from, %PersonWorker{current_room: :outside} = state) do
-    Logger.info(fn() -> "Person #{state.name} tried to wander but was already outside" end)
-    {:noreply, state}
+  def handle_cast({:wander}, _from, %PersonWorker{} = state) do
+    new_state = wander(state)
+    wanderlust_schedule_next(new_state)
+    {:noreply, new_state}
   end
-  def handle_cast({:wander}, _from, %PersonWorker{max: max, count: count} = state) when count >= max do
-    Logger.info(fn() -> "Person #{state.name} is done, ready to leave" end)
-    HouseParty.leave(state.name)
-    {:noreply, state |> Map.put(:current_room, :outside)}
-  end
-  def handle_cast({:wander}, _from, %PersonWorker{current_room: current_room, wander_delay_ms: wander_delay_ms} = state) do
-    new_room = HouseParty.get_all_rooms()
-               |> Enum.reject(fn(room) -> room == current_room end)
-               |> Enum.random()
-
-    case HouseParty.walk_into(new_room, state.name) do
-      :ok ->
-        Logger.info(fn() -> "Person #{state.name} is wandering, leaving #{current_room}, entered #{new_room}" end)
-      {:error, :destination_full} ->
-        Logger.info(fn() -> "Person #{state.name} is wandering, leaving #{current_room}, tried #{new_room} but it was full" end)
-      _ ->
-        Logger.info(fn() -> "Person #{state.name} is wandering, leaving #{current_room}, tried #{new_room} but was not able" end)
-    end
-    # we may have changed the state of the person
-    new_state = PersonWorker.dump(self())
-
-    # recycle
-    Process.send_after(self(), {:wander}, wander_delay_ms)
-
+  def handle_info({:wander}, _from, %PersonWorker{} = state) do
+    new_state = wander(state)
+    wanderlust_schedule_next(new_state)
     {:noreply, new_state}
   end
 
@@ -158,4 +123,168 @@ defmodule HouseParty.PersonWorker do
     {:stop, :shutdown, state}
   end
 
+  # ====================
+  # == Private Internal Functions,
+  # == exposed via handle_call/handle_cast via GenServer
+  # ====================
+
+  @doc """
+  wanderlust is a desire to wander, until we are done, and leave the party.
+
+  this function does not update state at all, but only schedules future work.
+  """
+  def wanderlust_schedule_next(%PersonWorker{current_room: :left_party} = person) do
+    Logger.error(fn() -> "wanderlust_schedule_next skipped, #{person.name} has left the party" end)
+  end
+  def wanderlust_schedule_next(%PersonWorker{wander_delay_ms: wander_delay_ms} = _person) do
+    Process.send_after(self(), {:wander}, wander_delay_ms)
+  end
+
+
+  @doc """
+  pick a new room to wander into, or decide it's time to leave
+
+  ## Examples
+
+      iex> room_names = [:kitchen]
+      iex> %HouseParty.PersonWorker{} |> HouseParty.PersonWorker.wander_pick_new_room(room_names)
+      :kitchen
+
+      iex> room_names = [:den, :kitchen]
+      iex> %HouseParty.PersonWorker{current_room: :den} |> HouseParty.PersonWorker.wander_pick_new_room(room_names)
+      :kitchen
+
+      iex> room_names = [:kitchen]
+      iex> %HouseParty.PersonWorker{current_room: :kitchen} |> HouseParty.PersonWorker.wander_pick_new_room(room_names)
+      nil
+
+      iex> room_names = [:den, :kitchen]
+      iex> %HouseParty.PersonWorker{count: 5, max: 5} |> HouseParty.PersonWorker.wander_pick_new_room(room_names)
+      :leave
+
+  """
+  def wander_pick_new_room(%PersonWorker{count: count, max: max} = _person, _room_names) when count >= max do
+    :leave
+  end
+  def wander_pick_new_room(%PersonWorker{current_room: :left_party} = _person, _room_names) do
+    :left_party
+  end
+  def wander_pick_new_room(%PersonWorker{current_room: nil} = _person, room_names) do
+    room_names |> Enum.random()
+  end
+  def wander_pick_new_room(%PersonWorker{current_room: current_room} = _person, room_names) do
+    room_names = room_names |> Enum.reject(fn(room) -> room == current_room end)
+    if Enum.empty?(room_names) do
+      nil
+    else
+      room_names |> Enum.random()
+    end
+  end
+
+  @doc """
+  wander into a new random room
+  """
+  def wander(%PersonWorker{current_room: :left_party} = person) do
+    Logger.error(fn() -> "wander skipped, #{person.name} has left the party" end)
+  end
+  def wander(%PersonWorker{} = person) do
+    room_names = HouseParty.get_all_rooms()
+    wander(person, room_names)
+  end
+  def wander(%PersonWorker{} = person, room_names) when is_list(room_names) do
+    new_room = wander_pick_new_room(person, room_names)
+    movement = lookup_pids_for_move(person, new_room)
+    HouseParty.PersonMove.walk_into(person, movement)
+  end
+
+  @doc """
+  lookup PIDs from Swarm for a room movement
+  """
+  def lookup_pids_for_move(%PersonWorker{current_room: current_room}, new_room) when is_atom(new_room) do
+    %{
+      new_room: new_room,
+      new_room_pid: HouseParty.get_room_pid(new_room),
+      current_room: current_room,
+      current_room_pid: HouseParty.get_room_pid(current_room),
+    }
+  end
+
+end
+
+defmodule HouseParty.PersonMove do
+  alias HouseParty.PersonWorker
+  require Logger
+  @moduledoc """
+  This controls movements for a person
+  It does not require access to Swarm, but therefore requires all PIDs to be known ahead of time.
+  It does access HouseParty.RoomWorker (via known PIDs)
+  """
+
+
+  @doc """
+  Walk into a new room
+  This is the main inteface to Move a Person into a new Room
+
+  Updates the RoomWorker processes via HouseParty.RoomWorker API
+  Does NOT update the PersonWorker process at all, but does return the full, new state of the PersonWorker
+
+  """
+  def walk_into(%PersonWorker{current_room: :left_party} = person, _new_room) do
+    Logger.error(fn() -> "walk_into skipped, #{person.name} has left the party" end)
+  end
+  def walk_into(%PersonWorker{} = person, movement) do
+    case enter_new_room(person, movement) do
+      :ok ->
+        case depart_current_room(person, movement) do
+          :ok ->
+            update_person_on_success(person, movement)
+          :cannot_leave_nil ->
+            update_person_on_success(person, movement)
+          :error ->
+            Logger.error(fn() -> "Person: #{person.name} got :error trying to depart_current_room #{movement.current_room}" end)
+            person
+        end
+      :full ->
+        update_person_on_failed_too_full(person, movement)
+      :error ->
+        Logger.error(fn() -> "Person: #{person.name} got :error trying to enter_new_room #{movement.new_room}" end)
+        person
+    end
+  end
+  # leave the party (enter nothing, will depart, update will finish)
+  defp enter_new_room(%PersonWorker{}, :leave) do
+    :ok
+  end
+  # log_entry a new room
+  defp enter_new_room(%PersonWorker{name: person_name}, %{new_room_pid: new_room_pid}) do
+    HouseParty.RoomWorker.add_person(new_room_pid, person_name)
+  end
+  # leave the current room
+  defp depart_current_room(%PersonWorker{current_room: nil}, _movement) do
+    :ok
+  end
+  defp depart_current_room(%PersonWorker{name: person_name}, %{current_room_pid: current_room_pid}) do
+    HouseParty.RoomWorker.rm_person(current_room_pid, person_name)
+  end
+
+  @doc """
+  log that a person has entered a room
+  """
+  def update_person_on_success(%PersonWorker{log: log, count: count} = person, %{new_room: new_room}) do
+    person |> Map.merge(%{
+      current_room: new_room,
+      count: count + 1,
+      log: [{DateTime.utc_now, new_room, :entered} | log],
+    })
+  end
+
+  @doc """
+  log that a person has tried to log_entry a full room
+  """
+  def update_person_on_failed_too_full(%PersonWorker{log: log, count: count} = person, %{new_room: new_room}) do
+    person |> Map.merge(%{
+      count: count + 1,
+      log: [{DateTime.utc_now, new_room, :was_full} | log],
+    })
+  end
 end
