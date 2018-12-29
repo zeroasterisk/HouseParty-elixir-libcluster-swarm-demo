@@ -32,7 +32,7 @@ defmodule HouseParty do
   def add_rooms(_), do: {:error, "Invalid room argument"}
   # process all rooms in a loop, until empty or error
   def add_rooms(:ok, []), do: :ok
-  def add_rooms(:ok, [room | rest]) when is_atom(room) do
+  def add_rooms(:ok, [room | rest]) do
     {status, _} = room |> add_room()
     status |> add_rooms(rest)
   end
@@ -40,6 +40,10 @@ defmodule HouseParty do
 
 
   # Add a room (not used externally)
+  defp add_room(%RoomWorker{name: room_name} = room) when is_atom(room_name) do
+    name = build_process_name(:room, room_name)
+    name |> Swarm.register_name(RoomWorker, :start_link, [room]) |> add_room_finish()
+  end
   defp add_room(room) when is_atom(room) do
     name = build_process_name(:room, room)
     name |> Swarm.register_name(RoomWorker, :start_link, [room]) |> add_room_finish()
@@ -81,12 +85,16 @@ defmodule HouseParty do
   def add_people(_), do: {:error, "Invalid person argument"}
   # process all people in a loop, until empty or error
   def add_people(:ok, []), do: :ok
-  def add_people(:ok, [person | rest]) when is_atom(person) do
+  def add_people(:ok, [person | rest]) do
     {status, _} = person |> add_person()
     status |> add_people(rest)
   end
   def add_people(:error, _list), do: :error
   # Add a person (not used externally)
+  defp add_person(%PersonWorker{name: person_name} = person) when is_atom(person_name) do
+    name = build_process_name(:person, person_name)
+    name |> Swarm.register_name(PersonWorker, :start_link, [person]) |> add_person_finish()
+  end
   defp add_person(person) when is_atom(person) do
     name = build_process_name(:person, person)
     name |> Swarm.register_name(PersonWorker, :start_link, [person]) |> add_person_finish()
@@ -175,19 +183,35 @@ defmodule HouseParty do
 
   ## Examples
 
-      iex> HouseParty.reset()
-      iex> HouseParty.add_rooms([:kitchen, :den])
+      iex> HousePartyTest.common_setup_tick1()
       iex> HouseParty.get_all_rooms() |> HousePartyTest.end_tests()
-      [:den, :kitchen]
+      [:den, :kitchen, :living_room]
 
   """
   def get_all_rooms() do
     house_party_pids = Swarm.members(:house_party_rooms)
     Swarm.registered()
     |> Enum.filter(fn({_name, pid}) -> Enum.member?(house_party_pids, pid) end)
-    |> Enum.map(fn({name, _pid}) ->
-      name |> Atom.to_string() |> String.slice(5, 99) |> String.to_atom
-    end)
+    |> Enum.map(fn({name, _pid}) -> name |> Atom.to_string() |> String.slice(5, 99) |> String.to_atom end)
+    |> Enum.sort()
+  end
+
+  @doc """
+  Get all person names
+
+  ## Examples
+
+      iex> HousePartyTest.common_setup_tick1()
+      iex> HouseParty.get_all_people() |> HousePartyTest.end_tests()
+      [:kid, :ladonna, :play, :sidney]
+
+  """
+  def get_all_people() do
+    house_party_pids = Swarm.members(:house_party_people)
+    Swarm.registered()
+    |> Enum.filter(fn({_name, pid}) -> Enum.member?(house_party_pids, pid) end)
+    |> Enum.map(fn({name, _pid}) -> name |> Atom.to_string() |> String.slice(7, 99) |> String.to_atom end)
+    |> Enum.sort()
   end
 
   @doc """

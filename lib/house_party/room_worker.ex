@@ -7,10 +7,12 @@ defmodule HouseParty.RoomWorker do
   It is responsible for a single room in our house.
   It maintains state on who is in that room.
   """
+  @timeout :infinity
 
   defstruct [
     name: nil, # atom
     max: 10, # int, max people in room
+    count: 0, # int, count of people currently in room
     people: %{}, # MapSet of list of people in rooms as [atom]
   ]
 
@@ -35,7 +37,7 @@ defmodule HouseParty.RoomWorker do
     state |> Map.put(:people, to_atom_mapset(people)) |> start_link()
   end
   def start_link(%RoomWorker{name: name} = state) when is_atom(name) do
-    GenServer.start_link(__MODULE__, state, [timeout: 10_000])
+    GenServer.start_link(__MODULE__, state, [timeout: @timeout])
     # we could name the processes, pinning them to the atom of the room name
     # but doing so does not rely on the Swarm and is not multi-node.
     # GenServer.start_link(__MODULE__, state, [name: name, timeout: 10_000])
@@ -51,6 +53,16 @@ defmodule HouseParty.RoomWorker do
   Dump details about the room
   """
   def dump(pid), do: GenServer.call(pid, {:dump})
+
+  @doc """
+  Dump raw state for the room
+  """
+  def dump_state(pid), do: GenServer.call(pid, {:dump_state})
+
+  @doc """
+  take fields from the state
+  """
+  def take(pid, fields), do: GenServer.call(pid, {:take, fields})
 
   @doc """
   Add a person to this room
@@ -89,11 +101,28 @@ defmodule HouseParty.RoomWorker do
     {:reply, {:ok, out}, state}
   end
 
+  # dump the current state (unaltered)
+  def handle_call({:dump_state}, _from, state) do
+    {:reply, {:ok, state}, state}
+  end
+
+  # take fields from the state
+  def handle_call({:take, fields}, _from, state) do
+    {:reply, {:ok, Map.take(state, fields)}, state}
+  end
+
   # we add a person to this room (not in scope, removal from other rooms)
+  def handle_call({:add_person, _new_people}, _from, %RoomWorker{count: count, max: max} = state) when count >= max do
+    {:reply, :full, state}
+  end
   def handle_call({:add_person, new_people}, _from, %RoomWorker{people: people, max: max} = state) do
     people = people |> MapSet.union(to_atom_mapset(new_people))
-    if Enum.count(people) <= max do
-      {:reply, :ok, state |> Map.put(:people, people)}
+    count = Enum.count(people)
+    if count <= max do
+      new_state = state
+                  |> Map.put(:count, count)
+                  |> Map.put(:people, people)
+      {:reply, :ok, new_state}
     else
       {:reply, :full, state}
     end
@@ -102,7 +131,11 @@ defmodule HouseParty.RoomWorker do
   # we remove a person from this room
   def handle_call({:rm_person, del_people}, _from, %RoomWorker{people: people} = state) do
     people = people |> MapSet.difference(to_atom_mapset(del_people))
-    {:reply, :ok, state |> Map.put(:people, people)}
+    count = Enum.count(people)
+    new_state = state
+                |> Map.put(:count, count)
+                |> Map.put(:people, people)
+    {:reply, :ok, new_state}
   end
 
   # called when a handoff has been initiated due to changes
