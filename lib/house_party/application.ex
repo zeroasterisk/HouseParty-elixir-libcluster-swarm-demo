@@ -8,7 +8,7 @@ defmodule HouseParty.Application do
   def start(_type, _args) do
     # List all child processes to be supervised
     port = get_port(Application.get_env(:house_party, :port))
-    Logger.info(fn() -> "starting with port #{port}" end)
+    Logger.info(fn() -> "HTTP interface starting with port #{port}" end)
     # topologies for the libcluster config
     topologies = Application.get_env(:libcluster, :topologies)
     children = [

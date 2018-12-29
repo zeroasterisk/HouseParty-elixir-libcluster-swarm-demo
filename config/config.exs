@@ -18,8 +18,10 @@ config :libcluster,
       strategy: Cluster.Strategy.Kubernetes,
       config: [
         mode: :ip, # :dns,
-        kubernetes_node_basename: "house_party",
-        kubernetes_selector: "app=house_party",
+        # these must match the Kubernetes Deployment values
+        kubernetes_node_basename: "housepartyapp",
+        kubernetes_selector: "app=housepartyapp",
+        # how fast are we checking for changes?
         polling_interval: 10_000,
       ]
     ]
