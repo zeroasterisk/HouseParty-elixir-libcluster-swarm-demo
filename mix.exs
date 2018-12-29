@@ -24,6 +24,7 @@ defmodule HouseParty.MixProject do
     [
       {:credo, "~> 1.0.0", only: [:dev, :test], runtime: false},
       {:mix_test_watch, "~> 0.9", only: :dev, runtime: false},
+      {:distillery, "~> 2.0"},
       {:swarm, "~> 3.3"},
       {:libcluster, "~> 3.0"},
       {:plug_cowboy, "~> 2.0"},

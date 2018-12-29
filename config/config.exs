@@ -29,7 +29,7 @@ config :libcluster,
 # you will also need to pass REPLACE_OS_VARS=true when starting the release
 # more info: https://hexdocs.pm/distillery/config/runtime.html
 # example:
-# REPLACE_OS_VARS=true PORT=8080 _build/prod/rel/exk8clusterapp/bin/house_party foreground
+# REPLACE_OS_VARS=true PORT=8080 _build/prod/rel/house_party/bin/house_party foreground
 config :house_party, port: "${PORT}"
 
 
