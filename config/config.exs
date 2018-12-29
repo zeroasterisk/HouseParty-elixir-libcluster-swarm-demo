@@ -10,6 +10,21 @@ config :swarm,
   distribution_strategy: Swarm.Distribution.Ring, # Swarm.Distribution.StaticQuorumRing
   debug: false
 
+# configuration for libcluster allowing it to get config from Kubernetes
+config :libcluster, :debug, true
+config :libcluster,
+  topologies: [
+    hpgcpcluster: [
+      strategy: Cluster.Strategy.Kubernetes,
+      config: [
+        mode: :ip, # :dns,
+        kubernetes_node_basename: "house_party",
+        kubernetes_selector: "app=house_party",
+        polling_interval: 10_000,
+      ]
+    ]
+  ]
+
 # PORT will need to be set via ENV variables for a distillary release
 # you will also need to pass REPLACE_OS_VARS=true when starting the release
 # more info: https://hexdocs.pm/distillery/config/runtime.html

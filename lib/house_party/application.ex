@@ -9,10 +9,13 @@ defmodule HouseParty.Application do
     # List all child processes to be supervised
     port = get_port(Application.get_env(:house_party, :port))
     Logger.info(fn() -> "starting with port #{port}" end)
+    # topologies for the libcluster config
+    topologies = Application.get_env(:libcluster, :topologies)
     children = [
       Plug.Cowboy.child_spec(scheme: :http, plug: HouseParty.Router, options: [port: port]),
       # Starts a worker by calling: HouseParty.Worker.start_link(arg)
       # {HouseParty.Worker, arg},
+      {Cluster.Supervisor, [topologies, [name: HouseParty.ClusterSupervisor]]},
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
