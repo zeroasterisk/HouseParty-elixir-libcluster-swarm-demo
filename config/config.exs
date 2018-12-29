@@ -10,6 +10,14 @@ config :swarm,
   distribution_strategy: Swarm.Distribution.Ring, # Swarm.Distribution.StaticQuorumRing
   debug: false
 
+# PORT will need to be set via ENV variables for a distillary release
+# you will also need to pass REPLACE_OS_VARS=true when starting the release
+# more info: https://hexdocs.pm/distillery/config/runtime.html
+# example:
+# REPLACE_OS_VARS=true PORT=8080 _build/prod/rel/exk8clusterapp/bin/house_party foreground
+config :house_party, port: "${PORT}"
+
+
 # This configuration is loaded before any dependency and is restricted
 # to this project. If another project depends on this project, this
 # file won't be loaded nor affect the parent project. For this reason,
