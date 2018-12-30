@@ -305,12 +305,14 @@ defmodule HouseParty do
   This is basically a doctest_start function to trash all standing processes before a test
   """
   def reset() do
-    Swarm.registered()
-    |> Enum.map(fn({_name, pid}) ->
-      if Process.alive?(pid) do
-        GenServer.stop(pid)
-      end
-    end)
+    :house_party_rooms |> Swarm.publish({:swarm, :die})
+    :house_party_people |> Swarm.publish({:swarm, :die})
+    # Swarm.registered()
+    # |> Enum.map(fn({_name, pid}) ->
+    #   if Process.alive?(pid) do
+    #     GenServer.stop(pid)
+    #   end
+    # end)
   end
 
 end

@@ -25,6 +25,7 @@ defmodule HouseParty.Application do
   end
 
   # get the port from configuration, as INT or STRING - defaults 4001
+  defp get_port("${PORT}"), do: "PORT" |> System.get_env() |> get_port()
   defp get_port(port) when is_integer(port), do: port
   defp get_port(port) when is_bitstring(port), do: port |> Integer.parse() |> get_port()
   defp get_port({port, _}), do: port
